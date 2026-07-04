@@ -1,0 +1,18 @@
+.DS_Store
+
+# Build output
+bin/
+obj/
+artifacts/
+*.zip
+
+# IDE/editor files
+.vs/
+.vscode/
+*.user
+*.suo
+
+# Local logs/config if the app is run from the repo
+logs/
+config.json
+*.log
