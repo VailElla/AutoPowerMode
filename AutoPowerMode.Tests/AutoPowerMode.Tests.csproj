@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AutoPowerMode.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\AppConfig.cs" Link="Source\AppConfig.cs" />
+    <Compile Include="..\ConfigService.cs" Link="Source\ConfigService.cs" />
+    <Compile Include="..\Logger.cs" Link="Source\Logger.cs" />
+    <Compile Include="..\PowerModeState.cs" Link="Source\PowerModeState.cs" />
+    <Compile Include="..\PowerModeTransitionPolicy.cs" Link="Source\PowerModeTransitionPolicy.cs" />
+    <Compile Include="..\PowerPlan.cs" Link="Source\PowerPlan.cs" />
+    <Compile Include="..\PowerPlanManager.cs" Link="Source\PowerPlanManager.cs" />
+    <Compile Include="..\PowerPlanOverridePolicy.cs" Link="Source\PowerPlanOverridePolicy.cs" />
+    <Compile Include="..\StartupRegistrationValue.cs" Link="Source\StartupRegistrationValue.cs" />
+  </ItemGroup>
+</Project>

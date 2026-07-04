@@ -14,7 +14,7 @@ public sealed class StartupService
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
             var value = key?.GetValue(ValueName) as string;
-            return !string.IsNullOrWhiteSpace(value);
+            return StartupRegistrationValue.IsEnabledValue(value, GetExecutablePath());
         }
         catch (Exception ex)
         {
@@ -36,8 +36,7 @@ public sealed class StartupService
 
             if (enabled)
             {
-                var executablePath = Environment.ProcessPath ?? Application.ExecutablePath;
-                key.SetValue(ValueName, QuotePath(executablePath), RegistryValueKind.String);
+                key.SetValue(ValueName, StartupRegistrationValue.QuotePath(GetExecutablePath()), RegistryValueKind.String);
                 Logger.Info("开机自启已开启。");
             }
             else
@@ -55,9 +54,9 @@ public sealed class StartupService
         }
     }
 
-    private static string QuotePath(string path)
+    private static string GetExecutablePath()
     {
-        var trimmed = path.Trim().Trim('"');
-        return $"\"{trimmed}\"";
+        return Environment.ProcessPath ?? Application.ExecutablePath;
     }
+
 }

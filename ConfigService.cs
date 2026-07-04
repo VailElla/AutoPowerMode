@@ -37,8 +37,7 @@ public sealed class ConfigService
             }
 
             var json = File.ReadAllText(ConfigPath);
-            var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions)
-                         ?? throw new InvalidDataException("配置文件为空或格式无效。");
+            var config = Deserialize(json);
 
             config.Normalize();
             Logger.Info($"已加载配置：空闲阈值={config.IdleThresholdSeconds} 秒，检测间隔={config.CheckIntervalSeconds} 秒，活跃计划={config.ActivePowerPlanGuid}，空闲计划={config.IdlePowerPlanGuid}，用户配置计划={config.PowerPlansConfiguredByUser}，开机自启={config.AutoStart}，暂停={config.IsPaused}");
@@ -62,7 +61,7 @@ public sealed class ConfigService
             Directory.CreateDirectory(ConfigDirectory);
             config.Normalize();
 
-            var json = JsonSerializer.Serialize(config, JsonOptions);
+            var json = Serialize(config);
             var tempPath = Path.Combine(ConfigDirectory, $"config.{Environment.ProcessId}.{Guid.NewGuid():N}.tmp");
             File.WriteAllText(tempPath, json);
 
@@ -105,6 +104,32 @@ public sealed class ConfigService
         }
     }
 
+    internal static AppConfig Deserialize(string json)
+    {
+        var config = JsonSerializer.Deserialize<AppConfig>(json, JsonOptions)
+                     ?? throw new InvalidDataException("配置文件为空或格式无效。");
+
+        config.Normalize();
+        return config;
+    }
+
+    internal static string Serialize(AppConfig config)
+    {
+        config.Normalize();
+        return JsonSerializer.Serialize(config, JsonOptions);
+    }
+
+    internal static int ConvertLegacyMinutesToSeconds(int minutes)
+    {
+        if (minutes <= 0)
+        {
+            return 0;
+        }
+
+        var seconds = (long)minutes * 60;
+        return seconds > int.MaxValue ? int.MaxValue : (int)seconds;
+    }
+
     private sealed class AppConfigJsonConverter : JsonConverter<AppConfig>
     {
         public override AppConfig? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
@@ -120,8 +145,8 @@ public sealed class ConfigService
             else if (root.TryGetProperty("idleThresholdMinutes", out var idleThresholdMinutesElement) && idleThresholdMinutesElement.TryGetInt32(out var idleThresholdMinutes))
             {
                 config.LegacyIdleThresholdMinutes = idleThresholdMinutes;
-                config.IdleThresholdSeconds = AppConfig.DefaultIdleThresholdSeconds;
-                Logger.Info($"检测到旧版 idleThresholdMinutes={idleThresholdMinutes}，已迁移为 idleThresholdSeconds={AppConfig.DefaultIdleThresholdSeconds}。");
+                config.IdleThresholdSeconds = ConvertLegacyMinutesToSeconds(idleThresholdMinutes);
+                Logger.Info($"检测到旧版 idleThresholdMinutes={idleThresholdMinutes}，已迁移为 idleThresholdSeconds={config.IdleThresholdSeconds}。");
             }
 
             if (root.TryGetProperty("checkIntervalSeconds", out var checkSeconds) && checkSeconds.TryGetInt32(out var checkIntervalSeconds))
@@ -131,8 +156,8 @@ public sealed class ConfigService
             else if (root.TryGetProperty("checkIntervalMinutes", out var legacyCheckMinutes) && legacyCheckMinutes.TryGetInt32(out var checkIntervalMinutes))
             {
                 config.LegacyCheckIntervalMinutes = checkIntervalMinutes;
-                config.CheckIntervalSeconds = AppConfig.DefaultCheckIntervalSeconds;
-                Logger.Info($"检测到旧版 checkIntervalMinutes={checkIntervalMinutes}，已迁移为 checkIntervalSeconds={AppConfig.DefaultCheckIntervalSeconds}。");
+                config.CheckIntervalSeconds = ConvertLegacyMinutesToSeconds(checkIntervalMinutes);
+                Logger.Info($"检测到旧版 checkIntervalMinutes={checkIntervalMinutes}，已迁移为 checkIntervalSeconds={config.CheckIntervalSeconds}。");
             }
 
             if (root.TryGetProperty("idlePowerPlanGuid", out var idleGuid))

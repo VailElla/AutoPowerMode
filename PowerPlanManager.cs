@@ -9,8 +9,12 @@ public sealed class PowerPlanManager
     private const string HighPerformanceGuid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
     private const string BalancedGuid = "381b4222-f694-41f0-9685-ff5bb260df2e";
 
+    internal static readonly string PowerSaverPlanGuid = PowerSaverGuid;
+    internal static readonly string HighPerformancePlanGuid = HighPerformanceGuid;
+    internal static readonly string BalancedPlanGuid = BalancedGuid;
+
     private static readonly Regex PlanRegex = new(
-        @"(?i)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+\(([^)]*)\)\s*(\*)?",
+        @"(?i)\{?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}?\s+\((.*)\)\s*(\*)?\s*$",
         RegexOptions.Compiled);
 
     public List<PowerPlan> GetPowerPlans()
@@ -139,7 +143,7 @@ public sealed class PowerPlanManager
         return IsBalancedPlan(FindByGuid(plans, guid));
     }
 
-    private static bool IsBalancedPlan(PowerPlan? plan)
+    internal static bool IsBalancedPlan(PowerPlan? plan)
     {
         if (plan is null)
         {
@@ -192,12 +196,12 @@ public sealed class PowerPlanManager
         return plans.Any(plan => GuidEquals(plan.Guid, guid));
     }
 
-    private static bool GuidEquals(string? left, string? right)
+    internal static bool GuidEquals(string? left, string? right)
     {
         return string.Equals(left?.Trim(), right?.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static List<PowerPlan> ParsePlans(string output)
+    internal static List<PowerPlan> ParsePlans(string output)
     {
         var plans = new List<PowerPlan>();
 

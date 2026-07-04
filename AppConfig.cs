@@ -25,7 +25,7 @@ public sealed class AppConfig
 
     public string ActivePowerPlanGuid { get; set; } = string.Empty;
 
-    public bool AutoStart { get; set; } = true;
+    public bool AutoStart { get; set; }
 
     public bool IsPaused { get; set; }
 

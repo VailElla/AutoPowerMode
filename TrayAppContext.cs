@@ -3,14 +3,6 @@ using System.Windows.Forms;
 
 namespace AutoPowerMode;
 
-public enum PowerModeState
-{
-    Active,
-    Idle,
-    Paused,
-    NotConfigured
-}
-
 public sealed class TrayAppContext : ApplicationContext
 {
     private static readonly TimeSpan SwitchCooldown = TimeSpan.FromSeconds(10);
@@ -21,6 +13,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly StartupService _startupService = new();
     private readonly PowerPlanManager _powerPlanManager = new();
     private readonly IdleDetector _idleDetector = new();
+    private readonly PowerModeTransitionPolicy _transitionPolicy = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu = new();
@@ -164,31 +157,44 @@ public sealed class TrayAppContext : ApplicationContext
     {
         var config = GetConfigSnapshot();
 
-        if (config.IsPaused)
-        {
-            SetState(PowerModeState.Paused);
-            return;
-        }
+        var isConfigured = IsConfigured(config);
+        var idleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSeconds);
 
-        if (!IsConfigured(config))
+        if (config.IsPaused || !isConfigured)
         {
-            SetState(PowerModeState.NotConfigured);
+            var inactiveTargetState = _transitionPolicy.Evaluate(
+                TimeSpan.Zero,
+                idleThreshold,
+                activeResumeThreshold: idleThreshold,
+                config.IsPaused,
+                isConfigured);
+
+            if (inactiveTargetState is not null)
+            {
+                SetState(inactiveTargetState.Value);
+            }
+
             return;
         }
 
         var idleTime = _idleDetector.GetIdleTime();
-        var idleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSeconds);
+        var targetState = _transitionPolicy.Evaluate(
+            idleTime,
+            idleThreshold,
+            activeResumeThreshold: idleThreshold,
+            config.IsPaused,
+            isConfigured);
 
-        if (idleTime >= idleThreshold)
+        switch (targetState)
         {
-            if (_currentState != PowerModeState.Idle)
-            {
-                await SwitchToConfiguredPlanAsync(PowerModeState.Idle, manual: false, cancellationToken);
-            }
-        }
-        else if (_currentState != PowerModeState.Active)
-        {
-            await SwitchToConfiguredPlanAsync(PowerModeState.Active, manual: false, cancellationToken);
+            case PowerModeState.Paused:
+            case PowerModeState.NotConfigured:
+                SetState(targetState.Value);
+                break;
+            case PowerModeState.Active:
+            case PowerModeState.Idle:
+                await SwitchToConfiguredPlanAsync(targetState.Value, manual: false, cancellationToken);
+                break;
         }
     }
 
@@ -199,10 +205,10 @@ public sealed class TrayAppContext : ApplicationContext
             ? config.IdlePowerPlanGuid
             : config.ActivePowerPlanGuid;
 
-        return SwitchToPlanAsync(targetGuid, targetState, manual, cancellationToken);
+        return SwitchToPlanAsync(targetGuid, targetState, manual, config, cancellationToken);
     }
 
-    private Task SwitchToPlanAsync(string targetGuid, PowerModeState targetState, bool manual, CancellationToken cancellationToken)
+    private Task SwitchToPlanAsync(string targetGuid, PowerModeState targetState, bool manual, AppConfig config, CancellationToken cancellationToken)
     {
         return Task.Run(
             () =>
@@ -216,15 +222,23 @@ public sealed class TrayAppContext : ApplicationContext
                         return;
                     }
 
-                    if (!manual && DateTimeOffset.Now - _lastSwitchTime < SwitchCooldown)
-                    {
-                        return;
-                    }
-
                     var activePlan = _powerPlanManager.GetActivePowerPlan();
                     if (activePlan is not null)
                     {
                         SetCurrentPowerPlan(activePlan);
+                    }
+
+                    if (PowerPlanOverridePolicy.ShouldSkipAutomaticSwitch(manual, activePlan?.Guid, config))
+                    {
+                        Logger.Info($"检测到外部手动切换到非配置电源计划，跳过本次自动切换：{activePlan?.Name} ({activePlan?.Guid})");
+                        return;
+                    }
+
+                    if (!manual &&
+                        targetState == PowerModeState.Idle &&
+                        DateTimeOffset.Now - _lastSwitchTime < SwitchCooldown)
+                    {
+                        return;
                     }
 
                     if (string.Equals(activePlan?.Guid, targetGuid, StringComparison.OrdinalIgnoreCase))
@@ -487,6 +501,7 @@ public sealed class TrayAppContext : ApplicationContext
     private void SetState(PowerModeState state)
     {
         _currentState = state;
+        _transitionPolicy.MarkState(state);
         PostToUi(RefreshMenuItems);
     }
 

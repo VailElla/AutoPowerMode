@@ -10,6 +10,7 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _activePlanCombo = new();
     private readonly ComboBox _idlePlanCombo = new();
     private readonly CheckBox _autoStartCheckBox = new();
+    private readonly ToolTip _powerPlanToolTip = new();
     private readonly AppConfig _originalConfig;
 
     public SettingsForm(AppConfig config, IReadOnlyList<PowerPlan> powerPlans)
@@ -19,11 +20,12 @@ public sealed class SettingsForm : Form
 
         Text = $"{AppInfo.DisplayName} 设置";
         StartPosition = FormStartPosition.CenterScreen;
+        AutoScaleMode = AutoScaleMode.Dpi;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = true;
-        ClientSize = new Size(560, 270);
+        ClientSize = new Size(640, 290);
 
         BuildLayout(powerPlans);
         LoadValues(config, powerPlans);
@@ -66,6 +68,8 @@ public sealed class SettingsForm : Form
 
         ConfigureComboBox(_activePlanCombo, powerPlans);
         ConfigureComboBox(_idlePlanCombo, powerPlans);
+        AttachPlanToolTip(_activePlanCombo);
+        AttachPlanToolTip(_idlePlanCombo);
 
         _autoStartCheckBox.Text = "启用当前用户开机自启";
         _autoStartCheckBox.AutoSize = true;
@@ -139,6 +143,8 @@ public sealed class SettingsForm : Form
 
         SelectPlan(_activePlanCombo, config.ActivePowerPlanGuid, preferActivePlan: true);
         SelectPlan(_idlePlanCombo, config.IdlePowerPlanGuid, preferActivePlan: false);
+        UpdatePlanToolTip(_activePlanCombo);
+        UpdatePlanToolTip(_idlePlanCombo);
         _autoStartCheckBox.Checked = config.AutoStart;
     }
 
@@ -146,7 +152,13 @@ public sealed class SettingsForm : Form
     {
         comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
         comboBox.Dock = DockStyle.Fill;
+        comboBox.IntegralHeight = false;
+        comboBox.MaxDropDownItems = Math.Clamp(powerPlans.Count, 1, 12);
         comboBox.Items.Clear();
+        comboBox.DropDown += (_, _) =>
+        {
+            comboBox.DropDownWidth = CalculatePlanDropDownWidth(comboBox, powerPlans);
+        };
 
         foreach (var powerPlan in powerPlans)
         {
@@ -154,6 +166,35 @@ public sealed class SettingsForm : Form
         }
 
         comboBox.Enabled = powerPlans.Count > 0;
+    }
+
+    private void AttachPlanToolTip(ComboBox comboBox)
+    {
+        comboBox.SelectedIndexChanged += (_, _) => UpdatePlanToolTip(comboBox);
+        comboBox.MouseHover += (_, _) => UpdatePlanToolTip(comboBox);
+    }
+
+    private void UpdatePlanToolTip(ComboBox comboBox)
+    {
+        var text = comboBox.SelectedItem is PowerPlan plan ? plan.TooltipText : string.Empty;
+        _powerPlanToolTip.SetToolTip(comboBox, text);
+    }
+
+    private static int CalculatePlanDropDownWidth(ComboBox comboBox, IReadOnlyList<PowerPlan> powerPlans)
+    {
+        if (powerPlans.Count == 0)
+        {
+            return comboBox.Width;
+        }
+
+        using var graphics = comboBox.CreateGraphics();
+        var longestTextWidth = powerPlans
+            .Select(plan => TextRenderer.MeasureText(graphics, plan.DisplayName, comboBox.Font).Width)
+            .DefaultIfEmpty(comboBox.Width)
+            .Max();
+
+        var desiredWidth = longestTextWidth + SystemInformation.VerticalScrollBarWidth + 32;
+        return Math.Clamp(desiredWidth, comboBox.Width, 900);
     }
 
     private static void SelectPlan(ComboBox comboBox, string guid, bool preferActivePlan)
@@ -312,5 +353,15 @@ public sealed class SettingsForm : Form
         }
 
         return true;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _powerPlanToolTip.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 }

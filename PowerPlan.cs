@@ -13,9 +13,13 @@ public sealed class PowerPlan
         get
         {
             var activeSuffix = IsActive ? " *" : string.Empty;
-            return $"{Name} ({Guid}){activeSuffix}";
+            return $"{Name}{activeSuffix}";
         }
     }
+
+    public string TooltipText => string.IsNullOrWhiteSpace(Guid)
+        ? Name
+        : $"{Name}{Environment.NewLine}{Guid}";
 
     public override string ToString() => DisplayName;
 }
