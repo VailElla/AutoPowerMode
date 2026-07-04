@@ -54,9 +54,9 @@ jobs:
 
           ## 普通用户下载方式
 
-          1. 下载 `$env:ASSET_NAME`
+          1. 下载 ``$env:ASSET_NAME``
           2. 解压 zip
-          3. 进入解压后的文件夹，双击 `AutoPowerMode.exe`
+          3. 进入解压后的文件夹，双击 ``AutoPowerMode.exe``
 
           这是 Windows x64 framework-dependent 版本，体积较小，不内置 .NET 运行时。
           运行前需要 Windows 已安装 .NET 8 Desktop Runtime；不需要安装 .NET SDK。
