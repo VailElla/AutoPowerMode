@@ -11,7 +11,7 @@ internal static class Program
         {
             MessageBox.Show(
                 "AutoPowerMode 只能在 Windows 上运行。",
-                "AutoPowerMode",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             return;
@@ -23,8 +23,8 @@ internal static class Program
         {
             Logger.Error("WinForms UI 线程异常。", args.Exception);
             MessageBox.Show(
-                "程序遇到异常，详情请查看日志。",
-                "AutoPowerMode",
+                $"程序遇到异常，详情请查看日志。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         };
@@ -41,6 +41,35 @@ internal static class Program
             }
         };
 
-        Application.Run(new TrayAppContext());
+        try
+        {
+            using var singleInstanceService = SingleInstanceService.Create();
+            if (!singleInstanceService.IsFirstInstance)
+            {
+                if (!singleInstanceService.SignalExistingInstance())
+                {
+                    MessageBox.Show(
+                        "AutoPowerMode 已在运行，但无法自动打开现有窗口。请从系统托盘打开设置。",
+                        AppInfo.DisplayName,
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+
+                return;
+            }
+
+            using var trayAppContext = new TrayAppContext();
+            singleInstanceService.StartActivationServer(trayAppContext.OpenSettingsFromExternalRequest);
+            Application.Run(trayAppContext);
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("程序启动失败。", ex);
+            MessageBox.Show(
+                $"程序启动失败，详情请查看日志。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                AppInfo.DisplayName,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 }

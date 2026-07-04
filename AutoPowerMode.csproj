@@ -9,4 +9,8 @@
     <AssemblyName>AutoPowerMode</AssemblyName>
     <RootNamespace>AutoPowerMode</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Update="README.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

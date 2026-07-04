@@ -2,6 +2,9 @@ name: Build Windows Release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -14,8 +17,8 @@ jobs:
   release:
     runs-on: windows-latest
     env:
-      TAG_NAME: v1.0.0
-      ASSET_NAME: AutoPowerMode-v1.0.0-win-x64-self-contained.zip
+      TAG_NAME: ${{ github.ref_name }}
+      ASSET_NAME: AutoPowerMode-${{ github.ref_name }}-win-x64-self-contained.zip
 
     steps:
       - name: Check out repository
@@ -43,11 +46,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Compress-Archive -Path publish\AutoPowerMode.exe -DestinationPath "dist\$env:ASSET_NAME" -Force
           @"
-          # AutoPowerMode v1.0.0
+          # AutoPowerMode $env:TAG_NAME
 
           ## 普通用户下载方式
 
-          1. 下载 `AutoPowerMode-v1.0.0-win-x64-self-contained.zip`
+          1. 下载 `$env:ASSET_NAME`
           2. 解压 zip
           3. 双击 `AutoPowerMode.exe`
 
@@ -60,8 +63,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if (gh release view "$env:TAG_NAME" --repo "$env:GITHUB_REPOSITORY" *> $null) {
-            Write-Host "Release $env:TAG_NAME already exists. Change TAG_NAME and ASSET_NAME for a new release."
+            Write-Host "Release $env:TAG_NAME already exists. Uploading asset if it is missing."
+            gh release upload "$env:TAG_NAME" "dist\$env:ASSET_NAME" --repo "$env:GITHUB_REPOSITORY" --clobber
+            gh release edit "$env:TAG_NAME" --repo "$env:GITHUB_REPOSITORY" --title "AutoPowerMode $env:TAG_NAME" --notes-file release-notes.md --latest
             exit 0
           }
 
-          gh release create "$env:TAG_NAME" "dist\$env:ASSET_NAME" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "AutoPowerMode v1.0.0" --notes-file release-notes.md --latest
+          gh release create "$env:TAG_NAME" "dist\$env:ASSET_NAME" --repo "$env:GITHUB_REPOSITORY" --target "$env:GITHUB_SHA" --title "AutoPowerMode $env:TAG_NAME" --notes-file release-notes.md --latest

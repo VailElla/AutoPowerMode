@@ -17,7 +17,7 @@ public sealed class SettingsForm : Form
         _originalConfig = config.Clone();
         SavedConfig = config.Clone();
 
-        Text = "AutoPowerMode 设置";
+        Text = $"{AppInfo.DisplayName} 设置";
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
@@ -52,14 +52,14 @@ public sealed class SettingsForm : Form
 
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
-        _idleThresholdInput.Minimum = AppConfig.MinIdleThresholdMinutes;
-        _idleThresholdInput.Maximum = AppConfig.MaxIdleThresholdMinutes;
+        _idleThresholdInput.Minimum = AppConfig.MinIdleThresholdSeconds;
+        _idleThresholdInput.Maximum = AppConfig.MaxIdleThresholdSeconds;
         _idleThresholdInput.DecimalPlaces = 0;
         _idleThresholdInput.ThousandsSeparator = false;
         _idleThresholdInput.Dock = DockStyle.Fill;
 
-        _checkIntervalInput.Minimum = AppConfig.MinCheckIntervalMinutes;
-        _checkIntervalInput.Maximum = AppConfig.MaxCheckIntervalMinutes;
+        _checkIntervalInput.Minimum = AppConfig.MinCheckIntervalSeconds;
+        _checkIntervalInput.Maximum = AppConfig.MaxCheckIntervalSeconds;
         _checkIntervalInput.DecimalPlaces = 0;
         _checkIntervalInput.ThousandsSeparator = false;
         _checkIntervalInput.Dock = DockStyle.Fill;
@@ -73,11 +73,11 @@ public sealed class SettingsForm : Form
 
         AddText(root, "空闲多久后切换到节能模式", 0, 0);
         root.Controls.Add(_idleThresholdInput, 1, 0);
-        AddText(root, "分钟", 2, 0);
+        AddText(root, "秒", 2, 0);
 
         AddText(root, "检测间隔", 0, 1);
         root.Controls.Add(_checkIntervalInput, 1, 1);
-        AddText(root, "分钟", 2, 1);
+        AddText(root, "秒", 2, 1);
 
         AddText(root, "活跃时电源计划", 0, 2);
         root.Controls.Add(_activePlanCombo, 1, 2);
@@ -128,45 +128,106 @@ public sealed class SettingsForm : Form
     private void LoadValues(AppConfig config, IReadOnlyList<PowerPlan> powerPlans)
     {
         _idleThresholdInput.Value = Math.Clamp(
-            config.IdleThresholdMinutes,
-            AppConfig.MinIdleThresholdMinutes,
-            AppConfig.MaxIdleThresholdMinutes);
+            config.IdleThresholdSeconds,
+            AppConfig.MinIdleThresholdSeconds,
+            AppConfig.MaxIdleThresholdSeconds);
 
         _checkIntervalInput.Value = Math.Clamp(
-            config.CheckIntervalMinutes,
-            AppConfig.MinCheckIntervalMinutes,
-            AppConfig.MaxCheckIntervalMinutes);
+            config.CheckIntervalSeconds,
+            AppConfig.MinCheckIntervalSeconds,
+            AppConfig.MaxCheckIntervalSeconds);
 
-        SelectPlan(_activePlanCombo, config.ActivePowerPlanGuid, powerPlans);
-        SelectPlan(_idlePlanCombo, config.IdlePowerPlanGuid, powerPlans);
+        SelectPlan(_activePlanCombo, config.ActivePowerPlanGuid, preferActivePlan: true);
+        SelectPlan(_idlePlanCombo, config.IdlePowerPlanGuid, preferActivePlan: false);
         _autoStartCheckBox.Checked = config.AutoStart;
     }
 
     private static void ConfigureComboBox(ComboBox comboBox, IReadOnlyList<PowerPlan> powerPlans)
     {
         comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
-        comboBox.DisplayMember = nameof(PowerPlan.DisplayName);
-        comboBox.ValueMember = nameof(PowerPlan.Guid);
         comboBox.Dock = DockStyle.Fill;
-        comboBox.DataSource = powerPlans.ToList();
+        comboBox.Items.Clear();
+
+        foreach (var powerPlan in powerPlans)
+        {
+            comboBox.Items.Add(powerPlan);
+        }
+
         comboBox.Enabled = powerPlans.Count > 0;
     }
 
-    private static void SelectPlan(ComboBox comboBox, string guid, IReadOnlyList<PowerPlan> powerPlans)
+    private static void SelectPlan(ComboBox comboBox, string guid, bool preferActivePlan)
     {
-        var index = powerPlans
-            .Select((plan, i) => new { plan, i })
-            .FirstOrDefault(item => string.Equals(item.plan.Guid, guid, StringComparison.OrdinalIgnoreCase))
-            ?.i;
+        var index = -1;
 
-        if (index.HasValue)
+        for (var i = 0; i < comboBox.Items.Count; i++)
         {
-            comboBox.SelectedIndex = index.Value;
+            if (comboBox.Items[i] is PowerPlan plan &&
+                string.Equals(plan.Guid, guid, StringComparison.OrdinalIgnoreCase))
+            {
+                index = i;
+                break;
+            }
         }
-        else if (powerPlans.Count > 0)
+
+        if (index >= 0)
+        {
+            comboBox.SelectedIndex = index;
+        }
+        else
+        {
+            SelectDefaultPlan(comboBox, preferActivePlan);
+        }
+    }
+
+    private static void SelectDefaultPlan(ComboBox comboBox, bool preferActivePlan)
+    {
+        var index = -1;
+
+        for (var i = 0; i < comboBox.Items.Count; i++)
+        {
+            if (comboBox.Items[i] is not PowerPlan plan)
+            {
+                continue;
+            }
+
+            var isPreferred = preferActivePlan
+                ? IsHighPerformancePlan(plan)
+                : IsPowerSaverPlan(plan);
+
+            if (isPreferred)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index >= 0)
+        {
+            comboBox.SelectedIndex = index;
+        }
+        else if (comboBox.Items.Count > 0)
         {
             comboBox.SelectedIndex = 0;
         }
+    }
+
+    private static bool IsHighPerformancePlan(PowerPlan plan)
+    {
+        return string.Equals(plan.Guid, "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(plan.Name, "High Performance", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "高性能", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "高效能", StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private static bool IsPowerSaverPlan(PowerPlan plan)
+    {
+        return string.Equals(plan.Guid, "a1841308-3541-4fab-bc81-f71556f20b4a", StringComparison.OrdinalIgnoreCase)
+               || string.Equals(plan.Name, "Power Saver", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "节能", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "節能", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "省电", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "省電", StringComparison.CurrentCultureIgnoreCase);
     }
 
     private static void AddText(TableLayoutPanel panel, string text, int column, int row)
@@ -194,11 +255,12 @@ public sealed class SettingsForm : Form
         var idlePlan = _idlePlanCombo.SelectedItem as PowerPlan;
 
         SavedConfig = _originalConfig.Clone();
-        SavedConfig.IdleThresholdMinutes = (int)_idleThresholdInput.Value;
-        SavedConfig.CheckIntervalMinutes = (int)_checkIntervalInput.Value;
+        SavedConfig.IdleThresholdSeconds = (int)_idleThresholdInput.Value;
+        SavedConfig.CheckIntervalSeconds = (int)_checkIntervalInput.Value;
         SavedConfig.ActivePowerPlanGuid = activePlan?.Guid ?? string.Empty;
         SavedConfig.IdlePowerPlanGuid = idlePlan?.Guid ?? string.Empty;
         SavedConfig.AutoStart = _autoStartCheckBox.Checked;
+        SavedConfig.PowerPlansConfiguredByUser = true;
         SavedConfig.Normalize();
 
         DialogResult = DialogResult.OK;
@@ -207,23 +269,23 @@ public sealed class SettingsForm : Form
 
     private bool ValidateInputs()
     {
-        if (_idleThresholdInput.Value < AppConfig.MinIdleThresholdMinutes ||
-            _idleThresholdInput.Value > AppConfig.MaxIdleThresholdMinutes)
+        if (_idleThresholdInput.Value < AppConfig.MinIdleThresholdSeconds ||
+            _idleThresholdInput.Value > AppConfig.MaxIdleThresholdSeconds)
         {
             MessageBox.Show(
-                $"空闲时间必须在 {AppConfig.MinIdleThresholdMinutes} 到 {AppConfig.MaxIdleThresholdMinutes} 分钟之间。",
-                "AutoPowerMode",
+                $"空闲时间必须在 {AppConfig.MinIdleThresholdSeconds} 到 {AppConfig.MaxIdleThresholdSeconds} 秒之间。",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return false;
         }
 
-        if (_checkIntervalInput.Value < AppConfig.MinCheckIntervalMinutes ||
-            _checkIntervalInput.Value > AppConfig.MaxCheckIntervalMinutes)
+        if (_checkIntervalInput.Value < AppConfig.MinCheckIntervalSeconds ||
+            _checkIntervalInput.Value > AppConfig.MaxCheckIntervalSeconds)
         {
             MessageBox.Show(
-                $"检测间隔必须在 {AppConfig.MinCheckIntervalMinutes} 到 {AppConfig.MaxCheckIntervalMinutes} 分钟之间。",
-                "AutoPowerMode",
+                $"检测间隔必须在 {AppConfig.MinCheckIntervalSeconds} 到 {AppConfig.MaxCheckIntervalSeconds} 秒之间。",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return false;
@@ -233,7 +295,7 @@ public sealed class SettingsForm : Form
         {
             MessageBox.Show(
                 "请选择活跃时使用的电源计划。",
-                "AutoPowerMode",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return false;
@@ -243,7 +305,7 @@ public sealed class SettingsForm : Form
         {
             MessageBox.Show(
                 "请选择空闲时使用的电源计划。",
-                "AutoPowerMode",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
             return false;

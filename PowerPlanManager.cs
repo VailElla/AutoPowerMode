@@ -7,6 +7,7 @@ public sealed class PowerPlanManager
 {
     private const string PowerSaverGuid = "a1841308-3541-4fab-bc81-f71556f20b4a";
     private const string HighPerformanceGuid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c";
+    private const string BalancedGuid = "381b4222-f694-41f0-9685-ff5bb260df2e";
 
     private static readonly Regex PlanRegex = new(
         @"(?i)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s+\(([^)]*)\)\s*(\*)?",
@@ -114,6 +115,16 @@ public sealed class PowerPlanManager
                 Logger.Error("自动匹配高性能计划失败。");
             }
         }
+        else if (IsBalancedPlan(FindByGuid(plans, config.ActivePowerPlanGuid)))
+        {
+            var activePlan = FindActivePlan(plans);
+            if (activePlan is not null)
+            {
+                Logger.Info($"检测到平衡计划被配置为活跃计划，已自动修正为高性能计划：{activePlan.Name} ({activePlan.Guid})");
+                config.ActivePowerPlanGuid = activePlan.Guid;
+                changed = true;
+            }
+        }
 
         return changed;
     }
@@ -121,6 +132,24 @@ public sealed class PowerPlanManager
     public PowerPlan? FindByGuid(IReadOnlyList<PowerPlan> plans, string guid)
     {
         return plans.FirstOrDefault(plan => GuidEquals(plan.Guid, guid));
+    }
+
+    public bool IsBalancedPlanGuid(IReadOnlyList<PowerPlan> plans, string guid)
+    {
+        return IsBalancedPlan(FindByGuid(plans, guid));
+    }
+
+    private static bool IsBalancedPlan(PowerPlan? plan)
+    {
+        if (plan is null)
+        {
+            return false;
+        }
+
+        return GuidEquals(plan.Guid, BalancedGuid)
+               || string.Equals(plan.Name, "Balanced", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "平衡", StringComparison.CurrentCultureIgnoreCase)
+               || string.Equals(plan.Name, "平衡模式", StringComparison.CurrentCultureIgnoreCase);
     }
 
     private static PowerPlan? FindIdlePlan(IReadOnlyList<PowerPlan> plans)

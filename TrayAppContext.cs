@@ -26,6 +26,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ContextMenuStrip _menu = new();
     private readonly ToolStripMenuItem _statusMenuItem = new();
     private readonly ToolStripMenuItem _currentPlanMenuItem = new();
+    private readonly ToolStripMenuItem _versionMenuItem = new();
     private readonly ToolStripMenuItem _idleThresholdMenuItem = new();
     private readonly ToolStripMenuItem _checkIntervalMenuItem = new();
     private readonly ToolStripMenuItem _togglePauseMenuItem = new();
@@ -43,6 +44,7 @@ public sealed class TrayAppContext : ApplicationContext
     private PowerPlan? _currentPowerPlan;
     private DateTimeOffset _lastSwitchTime = DateTimeOffset.MinValue;
     private bool _isExiting;
+    private bool _configSaveFailureShown;
 
     public TrayAppContext()
     {
@@ -56,7 +58,7 @@ public sealed class TrayAppContext : ApplicationContext
         _notifyIcon = new NotifyIcon
         {
             Icon = SystemIcons.Application,
-            Text = "AutoPowerMode",
+            Text = AppInfo.DisplayName,
             Visible = true,
             ContextMenuStrip = _menu
         };
@@ -70,13 +72,18 @@ public sealed class TrayAppContext : ApplicationContext
         _monitorTask = Task.Run(() => MonitorLoopAsync(_cancellationTokenSource.Token));
     }
 
+    public void OpenSettingsFromExternalRequest()
+    {
+        PostToUi(OpenSettings);
+    }
+
     private void InitializePowerPlans()
     {
         _powerPlans = _powerPlanManager.GetPowerPlans();
 
         if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
         {
-            _configService.Save(_config);
+            SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
         }
 
         _currentPowerPlan = _powerPlanManager.GetActivePowerPlan();
@@ -86,6 +93,7 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _statusMenuItem.Enabled = false;
         _currentPlanMenuItem.Enabled = false;
+        _versionMenuItem.Enabled = false;
         _idleThresholdMenuItem.Enabled = false;
         _checkIntervalMenuItem.Enabled = false;
 
@@ -105,6 +113,7 @@ public sealed class TrayAppContext : ApplicationContext
         };
         _menu.Items.AddRange(
         [
+            _versionMenuItem,
             _statusMenuItem,
             _currentPlanMenuItem,
             _idleThresholdMenuItem,
@@ -128,7 +137,7 @@ public sealed class TrayAppContext : ApplicationContext
                 await EvaluateOnceAsync(cancellationToken);
 
                 var config = GetConfigSnapshot();
-                var delay = TimeSpan.FromMinutes(config.CheckIntervalMinutes);
+                var delay = TimeSpan.FromSeconds(config.CheckIntervalSeconds);
                 await Task.Delay(delay, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -168,7 +177,7 @@ public sealed class TrayAppContext : ApplicationContext
         }
 
         var idleTime = _idleDetector.GetIdleTime();
-        var idleThreshold = TimeSpan.FromMinutes(config.IdleThresholdMinutes);
+        var idleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSeconds);
 
         if (idleTime >= idleThreshold)
         {
@@ -246,9 +255,10 @@ public sealed class TrayAppContext : ApplicationContext
         lock (_sync)
         {
             _config.IsPaused = !_config.IsPaused;
-            _configService.Save(_config);
             Logger.Info(_config.IsPaused ? "用户暂停自动切换。" : "用户恢复自动切换。");
         }
+
+        SaveConfigWithUserFeedback("暂停状态保存失败，下次启动可能无法恢复当前暂停状态。");
 
         RefreshStateFromConfig();
         RefreshMenuItems();
@@ -268,7 +278,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             MessageBox.Show(
                 "开机自启设置失败，详情请查看日志。",
-                "AutoPowerMode",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
@@ -276,8 +286,9 @@ public sealed class TrayAppContext : ApplicationContext
         lock (_sync)
         {
             _config.AutoStart = _startupService.IsEnabled();
-            _configService.Save(_config);
         }
+
+        SaveConfigWithUserFeedback("开机自启设置保存失败，下次启动可能无法恢复当前设置。");
 
         RefreshMenuItems();
     }
@@ -286,6 +297,8 @@ public sealed class TrayAppContext : ApplicationContext
     {
         if (_settingsForm is { IsDisposed: false })
         {
+            _settingsForm.WindowState = FormWindowState.Normal;
+            _settingsForm.BringToFront();
             _settingsForm.Activate();
             return;
         }
@@ -295,7 +308,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
             {
-                _configService.Save(_config);
+                SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
             }
         }
 
@@ -318,20 +331,25 @@ public sealed class TrayAppContext : ApplicationContext
         {
             MessageBox.Show(
                 "开机自启设置失败，已保留当前注册表状态。详情请查看日志。",
-                "AutoPowerMode",
+                AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
         }
 
         newConfig.AutoStart = _startupService.IsEnabled();
+        if (_powerPlanManager.IsBalancedPlanGuid(_powerPlans, newConfig.ActivePowerPlanGuid))
+        {
+            _powerPlanManager.TryAutoConfigure(newConfig, _powerPlans);
+        }
+
         newConfig.Normalize();
 
         lock (_sync)
         {
             _config = newConfig;
-            _configService.Save(_config);
         }
 
+        SaveConfigWithUserFeedback("设置保存失败，下次启动可能无法恢复本次修改。", alwaysShowFailure: true);
         Logger.Info("用户修改设置。");
         RefreshStateFromConfig();
         RefreshMenuItems();
@@ -367,7 +385,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_startupService.SetEnabled(_config.AutoStart))
         {
             _config.AutoStart = _startupService.IsEnabled();
-            _configService.Save(_config);
+            SaveConfigWithUserFeedback("同步开机自启状态保存失败。");
         }
         else
         {
@@ -400,12 +418,13 @@ public sealed class TrayAppContext : ApplicationContext
         var currentPowerPlanName = _currentPowerPlan?.Name ?? "未知";
         var autoStartText = _startupService.IsEnabled() ? "已开启" : "已关闭";
 
+        _versionMenuItem.Text = $"版本：{AppInfo.Version}";
         _statusMenuItem.Text = state == PowerModeState.NotConfigured
             ? "当前状态：NotConfigured（电源计划未配置）"
             : $"当前状态：{state}";
         _currentPlanMenuItem.Text = $"当前电源计划：{currentPowerPlanName}";
-        _idleThresholdMenuItem.Text = $"空闲阈值：{config.IdleThresholdMinutes} 分钟";
-        _checkIntervalMenuItem.Text = $"检测间隔：{config.CheckIntervalMinutes} 分钟";
+        _idleThresholdMenuItem.Text = $"空闲阈值：{config.IdleThresholdSeconds} 秒";
+        _checkIntervalMenuItem.Text = $"检测间隔：{config.CheckIntervalSeconds} 秒";
         _togglePauseMenuItem.Text = config.IsPaused ? "恢复自动切换" : "暂停自动切换";
         _switchToActiveMenuItem.Text = "立即切换到高性能计划";
         _switchToIdleMenuItem.Text = "立即切换到节能计划";
@@ -415,11 +434,11 @@ public sealed class TrayAppContext : ApplicationContext
 
         try
         {
-            _notifyIcon.Text = $"AutoPowerMode: {state}";
+            _notifyIcon.Text = $"{AppInfo.Name} {AppInfo.Version}: {state}";
         }
         catch
         {
-            _notifyIcon.Text = "AutoPowerMode";
+            _notifyIcon.Text = AppInfo.DisplayName;
         }
     }
 
@@ -439,6 +458,22 @@ public sealed class TrayAppContext : ApplicationContext
         {
             return _config.Clone();
         }
+    }
+
+    private bool SaveConfigWithUserFeedback(string failureMessage, bool alwaysShowFailure = false)
+    {
+        var saved = _configService.Save(GetConfigSnapshot());
+        if (!saved && (alwaysShowFailure || !_configSaveFailureShown))
+        {
+            _configSaveFailureShown = true;
+            MessageBox.Show(
+                $"{failureMessage}{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                AppInfo.DisplayName,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+
+        return saved;
     }
 
     private bool IsConfigured(AppConfig config)
@@ -490,6 +525,7 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             _cancellationTokenSource.Cancel();
+            SaveConfigWithUserFeedback("退出前保存配置失败，下次启动可能无法恢复最后一次修改。");
             _monitorTask?.Wait(TimeSpan.FromSeconds(3));
         }
         catch (Exception ex)
