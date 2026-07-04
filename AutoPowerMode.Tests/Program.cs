@@ -9,10 +9,12 @@ var tests = new (string Name, Action Run)[]
     ("PowerPlanManager parses Simplified Chinese powercfg output", PowerPlanManagerTests.ParsesSimplifiedChineseOutput),
     ("PowerPlanManager parses Traditional Chinese powercfg output", PowerPlanManagerTests.ParsesTraditionalChineseOutput),
     ("PowerPlanManager parses OEM and parenthesized plan names", PowerPlanManagerTests.ParsesOemAndParenthesizedNames),
+    ("PowerPlanManager keeps GUID when plan name is missing", PowerPlanManagerTests.KeepsGuidWhenPlanNameIsMissing),
     ("PowerPlanManager does not invent missing standard plans", PowerPlanManagerTests.DoesNotInventMissingStandardPlans),
     ("PowerPlanManager matches GUIDs case-insensitively", PowerPlanManagerTests.MatchesGuidsCaseInsensitively),
     ("PowerModeTransitionPolicy requires consecutive idle confirmations", PowerModeTransitionPolicyTests.RequiresConsecutiveIdleConfirmations),
     ("PowerModeTransitionPolicy resumes active immediately", PowerModeTransitionPolicyTests.ResumesActiveImmediately),
+    ("ConfigService cleans stale temp files only", ConfigServiceTests.CleansStaleTempFilesOnly),
     ("Logger rotates app.log after one megabyte", LoggerTests.RotatesAfterOneMegabyte),
     ("Logger keeps at most three archived logs", LoggerTests.KeepsAtMostThreeArchives),
     ("Logger sanitizes AppData and app directory paths", LoggerTests.SanitizesAppDataAndAppDirectoryPaths),
@@ -84,6 +86,28 @@ internal static class ConfigServiceTests
         var config = ConfigService.Deserialize("{}");
 
         Assert.False(config.AutoStart);
+    }
+
+    public static void CleansStaleTempFilesOnly()
+    {
+        using var tempDirectory = TemporaryDirectory.Create();
+        var staleTempPath = Path.Combine(tempDirectory.Path, "config.123.abcdef.tmp");
+        var freshTempPath = Path.Combine(tempDirectory.Path, "config.456.abcdef.tmp");
+        var unrelatedPath = Path.Combine(tempDirectory.Path, "config.keep.json");
+        File.WriteAllText(staleTempPath, "stale");
+        File.WriteAllText(freshTempPath, "fresh");
+        File.WriteAllText(unrelatedPath, "keep");
+
+        var now = DateTimeOffset.UtcNow;
+        File.SetLastWriteTimeUtc(staleTempPath, now.AddDays(-2).UtcDateTime);
+        File.SetLastWriteTimeUtc(freshTempPath, now.AddHours(-2).UtcDateTime);
+
+        var deletedCount = ConfigService.CleanupStaleTempFiles(tempDirectory.Path, now);
+
+        Assert.Equal(1, deletedCount);
+        Assert.False(File.Exists(staleTempPath));
+        Assert.True(File.Exists(freshTempPath));
+        Assert.True(File.Exists(unrelatedPath));
     }
 }
 
@@ -161,6 +185,19 @@ internal static class PowerPlanManagerTests
         Assert.True(plans[1].IsActive);
     }
 
+    public static void KeepsGuidWhenPlanNameIsMissing()
+    {
+        var plans = PowerPlanManager.ParsePlans(
+            """
+            Power Scheme GUID: 12345678-1234-1234-1234-123456789abc
+            """);
+
+        Assert.Equal(1, plans.Count);
+        Assert.Equal("12345678-1234-1234-1234-123456789abc", plans[0].Guid);
+        Assert.Equal("Unknown Power Plan (12345678)", plans[0].Name);
+        Assert.False(plans[0].IsActive);
+    }
+
     public static void DoesNotInventMissingStandardPlans()
     {
         var manager = new PowerPlanManager();
@@ -197,39 +234,33 @@ internal static class PowerModeTransitionPolicyTests
     public static void RequiresConsecutiveIdleConfirmations()
     {
         var policy = new PowerModeTransitionPolicy(requiredIdleDetections: 2);
-        policy.MarkState(PowerModeState.Active);
+        policy.MarkActivityState(UserActivityState.Active);
 
         var first = policy.Evaluate(
             TimeSpan.FromSeconds(20),
             TimeSpan.FromSeconds(10),
-            TimeSpan.FromSeconds(10),
-            isPaused: false,
-            isConfigured: true);
+            TimeSpan.FromSeconds(10));
 
         var second = policy.Evaluate(
             TimeSpan.FromSeconds(21),
             TimeSpan.FromSeconds(10),
-            TimeSpan.FromSeconds(10),
-            isPaused: false,
-            isConfigured: true);
+            TimeSpan.FromSeconds(10));
 
         Assert.Null(first);
-        Assert.Equal(PowerModeState.Idle, second);
+        Assert.Equal(UserActivityState.Idle, second);
     }
 
     public static void ResumesActiveImmediately()
     {
         var policy = new PowerModeTransitionPolicy(requiredIdleDetections: 2);
-        policy.MarkState(PowerModeState.Idle);
+        policy.MarkActivityState(UserActivityState.Idle);
 
         var result = policy.Evaluate(
             TimeSpan.Zero,
             TimeSpan.FromSeconds(10),
-            TimeSpan.FromSeconds(10),
-            isPaused: false,
-            isConfigured: true);
+            TimeSpan.FromSeconds(10));
 
-        Assert.Equal(PowerModeState.Active, result);
+        Assert.Equal(UserActivityState.Active, result);
     }
 }
 

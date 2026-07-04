@@ -10,10 +10,12 @@ public sealed class SettingsForm : Form
     private readonly ComboBox _activePlanCombo = new();
     private readonly ComboBox _idlePlanCombo = new();
     private readonly CheckBox _autoStartCheckBox = new();
+    private readonly Label _automationStatusValueLabel = new();
+    private readonly Label _checkIntervalWarningLabel = new();
     private readonly ToolTip _powerPlanToolTip = new();
     private readonly AppConfig _originalConfig;
 
-    public SettingsForm(AppConfig config, IReadOnlyList<PowerPlan> powerPlans)
+    public SettingsForm(AppConfig config, IReadOnlyList<PowerPlan> powerPlans, string automationStatusText)
     {
         _originalConfig = config.Clone();
         SavedConfig = config.Clone();
@@ -25,9 +27,10 @@ public sealed class SettingsForm : Form
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = true;
-        ClientSize = new Size(640, 290);
+        ClientSize = new Size(680, 350);
 
         BuildLayout(powerPlans);
+        _automationStatusValueLabel.Text = automationStatusText;
         LoadValues(config, powerPlans);
     }
 
@@ -40,14 +43,14 @@ public sealed class SettingsForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(16),
             ColumnCount = 3,
-            RowCount = 6
+            RowCount = 8
         };
 
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
 
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 7; i++)
         {
             root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         }
@@ -65,6 +68,15 @@ public sealed class SettingsForm : Form
         _checkIntervalInput.DecimalPlaces = 0;
         _checkIntervalInput.ThousandsSeparator = false;
         _checkIntervalInput.Dock = DockStyle.Fill;
+        _checkIntervalInput.ValueChanged += (_, _) => UpdateCheckIntervalWarning();
+
+        _automationStatusValueLabel.AutoSize = true;
+        _automationStatusValueLabel.Anchor = AnchorStyles.Left;
+        _automationStatusValueLabel.TextAlign = ContentAlignment.MiddleLeft;
+
+        _checkIntervalWarningLabel.AutoSize = true;
+        _checkIntervalWarningLabel.Anchor = AnchorStyles.Left;
+        _checkIntervalWarningLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         ConfigureComboBox(_activePlanCombo, powerPlans);
         ConfigureComboBox(_idlePlanCombo, powerPlans);
@@ -75,24 +87,31 @@ public sealed class SettingsForm : Form
         _autoStartCheckBox.AutoSize = true;
         _autoStartCheckBox.Anchor = AnchorStyles.Left;
 
-        AddText(root, "空闲多久后切换到节能模式", 0, 0);
-        root.Controls.Add(_idleThresholdInput, 1, 0);
-        AddText(root, "秒", 2, 0);
+        AddText(root, "自动切换状态", 0, 0);
+        root.Controls.Add(_automationStatusValueLabel, 1, 0);
+        root.SetColumnSpan(_automationStatusValueLabel, 2);
 
-        AddText(root, "检测间隔", 0, 1);
-        root.Controls.Add(_checkIntervalInput, 1, 1);
+        AddText(root, "空闲多久后切换到节能模式", 0, 1);
+        root.Controls.Add(_idleThresholdInput, 1, 1);
         AddText(root, "秒", 2, 1);
 
-        AddText(root, "活跃时电源计划", 0, 2);
-        root.Controls.Add(_activePlanCombo, 1, 2);
+        AddText(root, "检测间隔", 0, 2);
+        root.Controls.Add(_checkIntervalInput, 1, 2);
+        AddText(root, "秒", 2, 2);
+
+        root.Controls.Add(_checkIntervalWarningLabel, 1, 3);
+        root.SetColumnSpan(_checkIntervalWarningLabel, 2);
+
+        AddText(root, "活跃时电源计划", 0, 4);
+        root.Controls.Add(_activePlanCombo, 1, 4);
         root.SetColumnSpan(_activePlanCombo, 2);
 
-        AddText(root, "空闲时电源计划", 0, 3);
-        root.Controls.Add(_idlePlanCombo, 1, 3);
+        AddText(root, "空闲时电源计划", 0, 5);
+        root.Controls.Add(_idlePlanCombo, 1, 5);
         root.SetColumnSpan(_idlePlanCombo, 2);
 
-        AddText(root, "开机自启", 0, 4);
-        root.Controls.Add(_autoStartCheckBox, 1, 4);
+        AddText(root, "开机自启", 0, 6);
+        root.Controls.Add(_autoStartCheckBox, 1, 6);
         root.SetColumnSpan(_autoStartCheckBox, 2);
 
         var buttons = new FlowLayoutPanel
@@ -120,7 +139,7 @@ public sealed class SettingsForm : Form
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
 
-        root.Controls.Add(buttons, 0, 5);
+        root.Controls.Add(buttons, 0, 7);
         root.SetColumnSpan(buttons, 3);
 
         AcceptButton = saveButton;
@@ -146,6 +165,27 @@ public sealed class SettingsForm : Form
         UpdatePlanToolTip(_activePlanCombo);
         UpdatePlanToolTip(_idlePlanCombo);
         _autoStartCheckBox.Checked = config.AutoStart;
+        UpdateCheckIntervalWarning();
+    }
+
+    private void UpdateCheckIntervalWarning()
+    {
+        var seconds = (int)_checkIntervalInput.Value;
+        if (seconds <= 30)
+        {
+            _checkIntervalWarningLabel.Text = "建议保持 5-30 秒，当前设置正常。";
+            _checkIntervalWarningLabel.ForeColor = SystemColors.GrayText;
+        }
+        else if (seconds <= 120)
+        {
+            _checkIntervalWarningLabel.Text = "检测间隔偏长，自动切换和恢复可能延迟。";
+            _checkIntervalWarningLabel.ForeColor = Color.DarkOrange;
+        }
+        else
+        {
+            _checkIntervalWarningLabel.Text = "检测间隔过长，可能显著延迟切换和恢复。";
+            _checkIntervalWarningLabel.ForeColor = Color.Firebrick;
+        }
     }
 
     private static void ConfigureComboBox(ComboBox comboBox, IReadOnlyList<PowerPlan> powerPlans)

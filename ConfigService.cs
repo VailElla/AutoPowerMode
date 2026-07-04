@@ -27,6 +27,7 @@ public sealed class ConfigService
         try
         {
             Directory.CreateDirectory(ConfigDirectory);
+            CleanupStaleTempFiles(ConfigDirectory, DateTimeOffset.UtcNow);
 
             if (!File.Exists(ConfigPath))
             {
@@ -128,6 +129,49 @@ public sealed class ConfigService
 
         var seconds = (long)minutes * 60;
         return seconds > int.MaxValue ? int.MaxValue : (int)seconds;
+    }
+
+    internal static int CleanupStaleTempFiles(string configDirectory, DateTimeOffset now)
+    {
+        try
+        {
+            if (!Directory.Exists(configDirectory))
+            {
+                return 0;
+            }
+
+            var deletedCount = 0;
+            foreach (var tempPath in Directory.EnumerateFiles(configDirectory, "config.*.tmp"))
+            {
+                try
+                {
+                    var lastWriteTime = File.GetLastWriteTimeUtc(tempPath);
+                    if (now - new DateTimeOffset(lastWriteTime) <= TimeSpan.FromDays(1))
+                    {
+                        continue;
+                    }
+
+                    File.Delete(tempPath);
+                    deletedCount++;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error($"清理配置临时文件失败：{tempPath}", ex);
+                }
+            }
+
+            if (deletedCount > 0)
+            {
+                Logger.Info($"已清理过期配置临时文件：{deletedCount} 个。");
+            }
+
+            return deletedCount;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("扫描配置临时文件失败。", ex);
+            return 0;
+        }
     }
 
     private sealed class AppConfigJsonConverter : JsonConverter<AppConfig>

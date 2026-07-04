@@ -13,15 +13,18 @@ public sealed class PowerPlanManager
     internal static readonly string HighPerformancePlanGuid = HighPerformanceGuid;
     internal static readonly string BalancedPlanGuid = BalancedGuid;
 
-    private static readonly Regex PlanRegex = new(
-        @"(?i)\{?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}?\s+\((.*)\)\s*(\*)?\s*$",
+    private static readonly Regex GuidRegex = new(
+        @"(?i)\{?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\}?",
         RegexOptions.Compiled);
+
+    public string LastPowerCfgError { get; private set; } = string.Empty;
 
     public List<PowerPlan> GetPowerPlans()
     {
         var result = RunPowerCfg("/list");
         if (!result.Success)
         {
+            LastPowerCfgError = $"powercfg /list failed. ExitCode={result.ExitCode}; Error={result.Error}";
             Logger.Error($"powercfg /list 执行失败。ExitCode={result.ExitCode}; Error={result.Error}");
             return [];
         }
@@ -29,6 +32,7 @@ public sealed class PowerPlanManager
         var plans = ParsePlans(result.Output);
         if (plans.Count == 0)
         {
+            LastPowerCfgError = "powercfg /list parsed zero plans.";
             Logger.Error($"powercfg /list 解析失败或没有找到电源计划。Output={result.Output}");
         }
         else
@@ -44,6 +48,7 @@ public sealed class PowerPlanManager
         var result = RunPowerCfg("/getactivescheme");
         if (!result.Success)
         {
+            LastPowerCfgError = $"powercfg /getactivescheme failed. ExitCode={result.ExitCode}; Error={result.Error}";
             Logger.Error($"powercfg /getactivescheme 执行失败。ExitCode={result.ExitCode}; Error={result.Error}");
             return null;
         }
@@ -51,6 +56,7 @@ public sealed class PowerPlanManager
         var plan = ParsePlans(result.Output).FirstOrDefault();
         if (plan is null)
         {
+            LastPowerCfgError = "powercfg /getactivescheme parsed zero plans.";
             Logger.Error($"当前活跃电源计划解析失败。Output={result.Output}");
             return null;
         }
@@ -78,6 +84,7 @@ public sealed class PowerPlanManager
         var result = RunPowerCfg($"/setactive {guid}");
         if (!result.Success)
         {
+            LastPowerCfgError = $"powercfg /setactive failed. Guid={guid}; ExitCode={result.ExitCode}; Error={result.Error}; Output={result.Output}";
             Logger.Error($"powercfg /setactive 执行失败。Guid={guid}; ExitCode={result.ExitCode}; Error={result.Error}; Output={result.Output}");
             return false;
         }
@@ -207,21 +214,56 @@ public sealed class PowerPlanManager
 
         foreach (var line in output.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries))
         {
-            var match = PlanRegex.Match(line);
-            if (!match.Success)
+            var guidMatch = GuidRegex.Match(line);
+            if (!guidMatch.Success)
             {
                 continue;
             }
 
+            var guid = guidMatch.Groups[1].Value;
+            var remainder = line[(guidMatch.Index + guidMatch.Length)..];
+
             plans.Add(new PowerPlan
             {
-                Guid = match.Groups[1].Value,
-                Name = match.Groups[2].Value.Trim(),
-                IsActive = match.Groups[3].Success
+                Guid = guid,
+                Name = ParsePlanName(remainder, guid),
+                IsActive = HasActiveMarker(remainder)
             });
         }
 
         return plans;
+    }
+
+    private static string ParsePlanName(string remainder, string guid)
+    {
+        var withoutActiveMarker = remainder.Trim();
+        if (withoutActiveMarker.EndsWith('*'))
+        {
+            withoutActiveMarker = withoutActiveMarker[..^1].TrimEnd();
+        }
+
+        var openIndex = withoutActiveMarker.IndexOf('(');
+        var closeIndex = withoutActiveMarker.LastIndexOf(')');
+        if (openIndex >= 0 && closeIndex > openIndex)
+        {
+            var name = withoutActiveMarker[(openIndex + 1)..closeIndex].Trim();
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                return name;
+            }
+        }
+
+        return $"Unknown Power Plan ({GetShortGuid(guid)})";
+    }
+
+    private static bool HasActiveMarker(string remainder)
+    {
+        return remainder.TrimEnd().EndsWith('*');
+    }
+
+    private static string GetShortGuid(string guid)
+    {
+        return guid.Length >= 8 ? guid[..8] : guid;
     }
 
     private static PowerCfgResult RunPowerCfg(string arguments)

@@ -12,48 +12,40 @@ internal sealed class PowerModeTransitionPolicy
         _requiredIdleDetections = Math.Max(1, requiredIdleDetections);
     }
 
-    public PowerModeState CurrentState { get; private set; } = PowerModeState.NotConfigured;
+    public UserActivityState CurrentActivityState { get; private set; } = UserActivityState.Unknown;
 
-    public void MarkState(PowerModeState state)
+    public void MarkActivityState(UserActivityState state)
     {
-        CurrentState = state;
+        CurrentActivityState = state;
         _idleDetectionCount = 0;
     }
 
-    public PowerModeState? Evaluate(
+    public void Reset()
+    {
+        CurrentActivityState = UserActivityState.Unknown;
+        _idleDetectionCount = 0;
+    }
+
+    public UserActivityState? Evaluate(
         TimeSpan idleTime,
         TimeSpan idleThreshold,
-        TimeSpan activeResumeThreshold,
-        bool isPaused,
-        bool isConfigured)
+        TimeSpan activeResumeThreshold)
     {
-        if (isPaused)
-        {
-            _idleDetectionCount = 0;
-            return CurrentState == PowerModeState.Paused ? null : PowerModeState.Paused;
-        }
-
-        if (!isConfigured)
-        {
-            _idleDetectionCount = 0;
-            return CurrentState == PowerModeState.NotConfigured ? null : PowerModeState.NotConfigured;
-        }
-
         if (idleTime < activeResumeThreshold)
         {
             _idleDetectionCount = 0;
-            return CurrentState == PowerModeState.Active ? null : PowerModeState.Active;
+            return CurrentActivityState == UserActivityState.Active ? null : UserActivityState.Active;
         }
 
         if (idleTime >= idleThreshold)
         {
-            if (CurrentState == PowerModeState.Idle)
+            if (CurrentActivityState == UserActivityState.Idle)
             {
                 return null;
             }
 
             _idleDetectionCount = Math.Min(_idleDetectionCount + 1, _requiredIdleDetections);
-            return _idleDetectionCount >= _requiredIdleDetections ? PowerModeState.Idle : null;
+            return _idleDetectionCount >= _requiredIdleDetections ? UserActivityState.Idle : null;
         }
 
         _idleDetectionCount = 0;

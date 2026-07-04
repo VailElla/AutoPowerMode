@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace AutoPowerMode;
@@ -25,6 +26,8 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _togglePauseMenuItem = new();
     private readonly ToolStripMenuItem _switchToActiveMenuItem = new();
     private readonly ToolStripMenuItem _switchToIdleMenuItem = new();
+    private readonly ToolStripMenuItem _resumeAutoControlMenuItem = new();
+    private readonly ToolStripMenuItem _diagnosticsMenuItem = new();
     private readonly ToolStripMenuItem _settingsMenuItem = new();
     private readonly ToolStripMenuItem _autoStartMenuItem = new();
     private readonly ToolStripMenuItem _exitMenuItem = new();
@@ -33,9 +36,13 @@ public sealed class TrayAppContext : ApplicationContext
     private List<PowerPlan> _powerPlans = [];
     private Task? _monitorTask;
     private SettingsForm? _settingsForm;
-    private PowerModeState _currentState = PowerModeState.NotConfigured;
+    private DiagnosticForm? _diagnosticForm;
+    private UserActivityState _userActivityState = UserActivityState.Unknown;
+    private ControlState _controlState = ControlState.NotConfigured;
     private PowerPlan? _currentPowerPlan;
     private DateTimeOffset _lastSwitchTime = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastSwitchStatusTime = DateTimeOffset.MinValue;
+    private string _lastSwitchStatus = "尚未切换";
     private bool _isExiting;
     private bool _configSaveFailureShown;
 
@@ -91,8 +98,11 @@ public sealed class TrayAppContext : ApplicationContext
         _checkIntervalMenuItem.Enabled = false;
 
         _togglePauseMenuItem.Click += (_, _) => TogglePause();
-        _switchToActiveMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(PowerModeState.Active, manual: true, CancellationToken.None);
-        _switchToIdleMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(PowerModeState.Idle, manual: true, CancellationToken.None);
+        _switchToActiveMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(UserActivityState.Active, manual: true, CancellationToken.None);
+        _switchToIdleMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(UserActivityState.Idle, manual: true, CancellationToken.None);
+        _resumeAutoControlMenuItem.Click += async (_, _) => await RestoreAutoControlAsync();
+        _diagnosticsMenuItem.Text = "诊断信息";
+        _diagnosticsMenuItem.Click += (_, _) => OpenDiagnostics();
         _settingsMenuItem.Text = "设置";
         _settingsMenuItem.Click += (_, _) => OpenSettings();
         _autoStartMenuItem.Click += (_, _) => ToggleAutoStart();
@@ -115,6 +125,8 @@ public sealed class TrayAppContext : ApplicationContext
             _togglePauseMenuItem,
             _switchToActiveMenuItem,
             _switchToIdleMenuItem,
+            _resumeAutoControlMenuItem,
+            _diagnosticsMenuItem,
             _settingsMenuItem,
             _autoStartMenuItem,
             _exitMenuItem
@@ -160,55 +172,43 @@ public sealed class TrayAppContext : ApplicationContext
         var isConfigured = IsConfigured(config);
         var idleThreshold = TimeSpan.FromSeconds(config.IdleThresholdSeconds);
 
-        if (config.IsPaused || !isConfigured)
+        if (config.IsPaused)
         {
-            var inactiveTargetState = _transitionPolicy.Evaluate(
-                TimeSpan.Zero,
-                idleThreshold,
-                activeResumeThreshold: idleThreshold,
-                config.IsPaused,
-                isConfigured);
+            SetControlState(ControlState.PausedByUser);
+            _transitionPolicy.Reset();
+            return;
+        }
 
-            if (inactiveTargetState is not null)
-            {
-                SetState(inactiveTargetState.Value);
-            }
-
+        if (!isConfigured)
+        {
+            SetControlState(ControlState.NotConfigured);
+            _transitionPolicy.Reset();
             return;
         }
 
         var idleTime = _idleDetector.GetIdleTime();
-        var targetState = _transitionPolicy.Evaluate(
+        var targetActivityState = _transitionPolicy.Evaluate(
             idleTime,
             idleThreshold,
-            activeResumeThreshold: idleThreshold,
-            config.IsPaused,
-            isConfigured);
+            activeResumeThreshold: idleThreshold);
 
-        switch (targetState)
+        if (targetActivityState is UserActivityState.Active or UserActivityState.Idle)
         {
-            case PowerModeState.Paused:
-            case PowerModeState.NotConfigured:
-                SetState(targetState.Value);
-                break;
-            case PowerModeState.Active:
-            case PowerModeState.Idle:
-                await SwitchToConfiguredPlanAsync(targetState.Value, manual: false, cancellationToken);
-                break;
+            await SwitchToConfiguredPlanAsync(targetActivityState.Value, manual: false, cancellationToken);
         }
     }
 
-    private Task SwitchToConfiguredPlanAsync(PowerModeState targetState, bool manual, CancellationToken cancellationToken)
+    private Task SwitchToConfiguredPlanAsync(UserActivityState targetActivityState, bool manual, CancellationToken cancellationToken)
     {
         var config = GetConfigSnapshot();
-        var targetGuid = targetState == PowerModeState.Idle
+        var targetGuid = targetActivityState == UserActivityState.Idle
             ? config.IdlePowerPlanGuid
             : config.ActivePowerPlanGuid;
 
-        return SwitchToPlanAsync(targetGuid, targetState, manual, config, cancellationToken);
+        return SwitchToPlanAsync(targetGuid, targetActivityState, manual, config, cancellationToken);
     }
 
-    private Task SwitchToPlanAsync(string targetGuid, PowerModeState targetState, bool manual, AppConfig config, CancellationToken cancellationToken)
+    private Task SwitchToPlanAsync(string targetGuid, UserActivityState targetActivityState, bool manual, AppConfig config, CancellationToken cancellationToken)
     {
         return Task.Run(
             () =>
@@ -218,7 +218,8 @@ public sealed class TrayAppContext : ApplicationContext
                     if (string.IsNullOrWhiteSpace(targetGuid))
                     {
                         Logger.Error("目标电源计划未配置。");
-                        SetState(PowerModeState.NotConfigured);
+                        SetLastSwitchStatus("失败：目标电源计划未配置");
+                        SetControlState(ControlState.NotConfigured);
                         return;
                     }
 
@@ -231,11 +232,14 @@ public sealed class TrayAppContext : ApplicationContext
                     if (PowerPlanOverridePolicy.ShouldSkipAutomaticSwitch(manual, activePlan?.Guid, config))
                     {
                         Logger.Info($"检测到外部手动切换到非配置电源计划，跳过本次自动切换：{activePlan?.Name} ({activePlan?.Guid})");
+                        SetLastSwitchStatus("跳过：外部电源计划覆盖");
+                        SetControlState(ControlState.ExternalOverride);
+                        _transitionPolicy.Reset();
                         return;
                     }
 
                     if (!manual &&
-                        targetState == PowerModeState.Idle &&
+                        targetActivityState == UserActivityState.Idle &&
                         DateTimeOffset.Now - _lastSwitchTime < SwitchCooldown)
                     {
                         return;
@@ -243,22 +247,32 @@ public sealed class TrayAppContext : ApplicationContext
 
                     if (string.Equals(activePlan?.Guid, targetGuid, StringComparison.OrdinalIgnoreCase))
                     {
-                        SetState(targetState);
+                        SetLastSwitchStatus("成功：当前已是目标电源计划");
+                        SetActivityState(targetActivityState);
+                        SetControlState(ControlState.Running);
                         return;
                     }
 
                     if (_powerPlanManager.SetActivePlan(targetGuid))
                     {
-                        _lastSwitchTime = DateTimeOffset.Now;
+                        SetLastSwitchStatus("成功", successfulSwitch: true);
                         var plan = _powerPlanManager.FindByGuid(_powerPlans, targetGuid)
                                    ?? _powerPlanManager.GetActivePowerPlan();
                         SetCurrentPowerPlan(plan);
-                        SetState(targetState);
+                        SetActivityState(targetActivityState);
+                        SetControlState(ControlState.Running);
+                    }
+                    else
+                    {
+                        SetLastSwitchStatus("失败：powercfg /setactive 未成功");
+                        SetControlState(ControlState.SwitchFailed);
                     }
                 }
                 catch (Exception ex)
                 {
                     Logger.Error("电源计划切换异常。", ex);
+                    SetLastSwitchStatus("失败：电源计划切换异常");
+                    SetControlState(ControlState.SwitchFailed);
                 }
             },
             cancellationToken);
@@ -329,7 +343,7 @@ public sealed class TrayAppContext : ApplicationContext
         var configForForm = GetConfigSnapshot();
         configForForm.AutoStart = _startupService.IsEnabled();
 
-        _settingsForm = new SettingsForm(configForForm, _powerPlans);
+        _settingsForm = new SettingsForm(configForForm, _powerPlans, GetDisplayStatusText(configForForm));
         if (_settingsForm.ShowDialog() == DialogResult.OK)
         {
             ApplySettings(_settingsForm.SavedConfig);
@@ -374,6 +388,89 @@ public sealed class TrayAppContext : ApplicationContext
         }
     }
 
+    private void OpenDiagnostics()
+    {
+        if (_diagnosticForm is { IsDisposed: false })
+        {
+            _diagnosticForm.RefreshSnapshot();
+            _diagnosticForm.WindowState = FormWindowState.Normal;
+            _diagnosticForm.BringToFront();
+            _diagnosticForm.Activate();
+            return;
+        }
+
+        _diagnosticForm = new DiagnosticForm(
+            BuildDiagnosticSnapshot,
+            OpenLogDirectory,
+            RedetectPowerPlans,
+            RestoreAutoControlAsync);
+        _diagnosticForm.FormClosed += (_, _) => _diagnosticForm = null;
+        _diagnosticForm.Show();
+    }
+
+    private void OpenLogDirectory()
+    {
+        try
+        {
+            Directory.CreateDirectory(Logger.LogDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = Logger.LogDirectory,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("打开日志目录失败。", ex);
+            MessageBox.Show(
+                $"打开日志目录失败。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                AppInfo.DisplayName,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+    }
+
+    private void RedetectPowerPlans()
+    {
+        _powerPlans = _powerPlanManager.GetPowerPlans();
+        lock (_sync)
+        {
+            if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
+            {
+                SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
+            }
+        }
+
+        _currentPowerPlan = _powerPlanManager.GetActivePowerPlan() ?? _currentPowerPlan;
+        RefreshStateFromConfig();
+        RefreshMenuItems();
+    }
+
+    private async Task RestoreAutoControlAsync()
+    {
+        var config = GetConfigSnapshot();
+        if (config.IsPaused)
+        {
+            lock (_sync)
+            {
+                _config.IsPaused = false;
+            }
+
+            SaveConfigWithUserFeedback("恢复自动控制状态保存失败。");
+            config = GetConfigSnapshot();
+        }
+
+        if (!IsConfigured(config))
+        {
+            SetControlState(ControlState.NotConfigured);
+            return;
+        }
+
+        _transitionPolicy.Reset();
+        SetControlState(ControlState.Running);
+        await SwitchToConfiguredPlanAsync(UserActivityState.Active, manual: true, CancellationToken.None);
+    }
+
     private void QueueEvaluateOnce()
     {
         _ = Task.Run(
@@ -412,11 +509,15 @@ public sealed class TrayAppContext : ApplicationContext
         var config = GetConfigSnapshot();
         if (config.IsPaused)
         {
-            SetState(PowerModeState.Paused);
+            SetControlState(ControlState.PausedByUser);
         }
         else if (!IsConfigured(config))
         {
-            SetState(PowerModeState.NotConfigured);
+            SetControlState(ControlState.NotConfigured);
+        }
+        else if (_controlState is ControlState.PausedByUser or ControlState.NotConfigured)
+        {
+            SetControlState(ControlState.Running);
         }
     }
 
@@ -428,14 +529,12 @@ public sealed class TrayAppContext : ApplicationContext
         }
 
         var config = GetConfigSnapshot();
-        var state = GetDisplayState(config);
+        var statusText = GetDisplayStatusText(config);
         var currentPowerPlanName = _currentPowerPlan?.Name ?? "未知";
         var autoStartText = _startupService.IsEnabled() ? "已开启" : "已关闭";
 
         _versionMenuItem.Text = $"版本：{AppInfo.Version}";
-        _statusMenuItem.Text = state == PowerModeState.NotConfigured
-            ? "当前状态：NotConfigured（电源计划未配置）"
-            : $"当前状态：{state}";
+        _statusMenuItem.Text = $"当前状态：{statusText}";
         _currentPlanMenuItem.Text = $"当前电源计划：{currentPowerPlanName}";
         _idleThresholdMenuItem.Text = $"空闲阈值：{config.IdleThresholdSeconds} 秒";
         _checkIntervalMenuItem.Text = $"检测间隔：{config.CheckIntervalSeconds} 秒";
@@ -444,11 +543,13 @@ public sealed class TrayAppContext : ApplicationContext
         _switchToIdleMenuItem.Text = "立即切换到节能计划";
         _switchToActiveMenuItem.Enabled = _powerPlanManager.FindByGuid(_powerPlans, config.ActivePowerPlanGuid) is not null;
         _switchToIdleMenuItem.Enabled = _powerPlanManager.FindByGuid(_powerPlans, config.IdlePowerPlanGuid) is not null;
+        _resumeAutoControlMenuItem.Text = "恢复 AutoPowerMode 自动控制";
+        _resumeAutoControlMenuItem.Enabled = IsConfigured(config) && _controlState is ControlState.ExternalOverride or ControlState.SwitchFailed;
         _autoStartMenuItem.Text = $"开机自启：{autoStartText}";
 
         try
         {
-            _notifyIcon.Text = $"{AppInfo.Name} {AppInfo.Version}: {state}";
+            _notifyIcon.Text = $"{AppInfo.Name} {AppInfo.Version}: {GetCompactStatusText(config)}";
         }
         catch
         {
@@ -456,14 +557,114 @@ public sealed class TrayAppContext : ApplicationContext
         }
     }
 
-    private PowerModeState GetDisplayState(AppConfig config)
+    private string GetDisplayStatusText(AppConfig config)
     {
         if (config.IsPaused)
         {
-            return PowerModeState.Paused;
+            return "用户暂停自动切换";
         }
 
-        return IsConfigured(config) ? _currentState : PowerModeState.NotConfigured;
+        if (!IsConfigured(config))
+        {
+            return "NotConfigured（电源计划未配置）";
+        }
+
+        return _controlState switch
+        {
+            ControlState.ExternalOverride => "外部电源计划覆盖，自动切换已暂停",
+            ControlState.SwitchFailed => "切换失败，请打开诊断信息查看 powercfg 错误",
+            ControlState.PausedByUser => "用户暂停自动切换",
+            ControlState.NotConfigured => "NotConfigured（电源计划未配置）",
+            _ => _userActivityState switch
+            {
+                UserActivityState.Active => "活跃，使用高性能计划",
+                UserActivityState.Idle => "空闲，使用节能计划",
+                _ => "自动切换正常运行，等待下一次检测"
+            }
+        };
+    }
+
+    private string GetCompactStatusText(AppConfig config)
+    {
+        if (config.IsPaused)
+        {
+            return "Paused";
+        }
+
+        if (!IsConfigured(config))
+        {
+            return "NotConfigured";
+        }
+
+        return _controlState switch
+        {
+            ControlState.ExternalOverride => "ExternalOverride",
+            ControlState.SwitchFailed => "SwitchFailed",
+            ControlState.Running => _userActivityState.ToString(),
+            _ => _controlState.ToString()
+        };
+    }
+
+    private DiagnosticSnapshot BuildDiagnosticSnapshot()
+    {
+        var config = GetConfigSnapshot();
+        var idleTimeText = "未知";
+        try
+        {
+            idleTimeText = FormatDuration(_idleDetector.GetIdleTime());
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("读取诊断空闲时间失败。", ex);
+        }
+
+        return new DiagnosticSnapshot
+        {
+            AppVersion = AppInfo.Version,
+            ControlState = _controlState,
+            UserActivityState = _userActivityState,
+            DisplayStatus = GetDisplayStatusText(config),
+            CurrentPowerPlan = FormatPlan(_currentPowerPlan),
+            ActivePlanConfig = FormatPlan(_powerPlanManager.FindByGuid(_powerPlans, config.ActivePowerPlanGuid), config.ActivePowerPlanGuid),
+            IdlePlanConfig = FormatPlan(_powerPlanManager.FindByGuid(_powerPlans, config.IdlePowerPlanGuid), config.IdlePowerPlanGuid),
+            IdleTime = idleTimeText,
+            IdleThreshold = FormatDuration(TimeSpan.FromSeconds(config.IdleThresholdSeconds)),
+            CheckInterval = FormatDuration(TimeSpan.FromSeconds(config.CheckIntervalSeconds)),
+            LastSwitchStatus = _lastSwitchStatusTime == DateTimeOffset.MinValue
+                ? _lastSwitchStatus
+                : $"{_lastSwitchStatus}（{_lastSwitchStatusTime:yyyy-MM-dd HH:mm:ss}）",
+            LastPowerCfgError = string.IsNullOrWhiteSpace(_powerPlanManager.LastPowerCfgError)
+                ? "无"
+                : _powerPlanManager.LastPowerCfgError,
+            ConfigPath = Logger.SanitizeMessage(_configService.ConfigPath),
+            LogPath = Logger.SanitizeMessage(Logger.LogFilePath),
+            PortableLogPath = Logger.SanitizeMessage(Logger.PortableLogFilePath)
+        };
+    }
+
+    private static string FormatPlan(PowerPlan? plan, string? fallbackGuid = null)
+    {
+        if (plan is not null)
+        {
+            return $"{plan.Name} ({plan.Guid})";
+        }
+
+        return string.IsNullOrWhiteSpace(fallbackGuid) ? "未配置" : $"未找到 ({fallbackGuid})";
+    }
+
+    private static string FormatDuration(TimeSpan duration)
+    {
+        if (duration.TotalHours >= 1)
+        {
+            return $"{(int)duration.TotalHours} 小时 {duration.Minutes} 分 {duration.Seconds} 秒";
+        }
+
+        if (duration.TotalMinutes >= 1)
+        {
+            return $"{duration.Minutes} 分 {duration.Seconds} 秒";
+        }
+
+        return $"{Math.Max(0, (int)duration.TotalSeconds)} 秒";
     }
 
     private AppConfig GetConfigSnapshot()
@@ -498,11 +699,29 @@ public sealed class TrayAppContext : ApplicationContext
                && _powerPlanManager.FindByGuid(_powerPlans, config.ActivePowerPlanGuid) is not null;
     }
 
-    private void SetState(PowerModeState state)
+    private void SetActivityState(UserActivityState state)
     {
-        _currentState = state;
-        _transitionPolicy.MarkState(state);
+        _userActivityState = state;
+        _transitionPolicy.MarkActivityState(state);
         PostToUi(RefreshMenuItems);
+    }
+
+    private void SetControlState(ControlState state)
+    {
+        _controlState = state;
+        PostToUi(RefreshMenuItems);
+    }
+
+    private void SetLastSwitchStatus(string status, bool successfulSwitch = false)
+    {
+        var now = DateTimeOffset.Now;
+        _lastSwitchStatus = status;
+        _lastSwitchStatusTime = now;
+
+        if (successfulSwitch)
+        {
+            _lastSwitchTime = now;
+        }
     }
 
     private void SetCurrentPowerPlan(PowerPlan? powerPlan)
@@ -550,6 +769,8 @@ public sealed class TrayAppContext : ApplicationContext
         finally
         {
             _notifyIcon.Visible = false;
+            _diagnosticForm?.Dispose();
+            _settingsForm?.Dispose();
             _notifyIcon.Dispose();
             _menu.Dispose();
             _cancellationTokenSource.Dispose();

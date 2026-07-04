@@ -10,12 +10,13 @@
   <ItemGroup>
     <Compile Include="..\AppConfig.cs" Link="Source\AppConfig.cs" />
     <Compile Include="..\ConfigService.cs" Link="Source\ConfigService.cs" />
+    <Compile Include="..\ControlState.cs" Link="Source\ControlState.cs" />
     <Compile Include="..\Logger.cs" Link="Source\Logger.cs" />
-    <Compile Include="..\PowerModeState.cs" Link="Source\PowerModeState.cs" />
     <Compile Include="..\PowerModeTransitionPolicy.cs" Link="Source\PowerModeTransitionPolicy.cs" />
     <Compile Include="..\PowerPlan.cs" Link="Source\PowerPlan.cs" />
     <Compile Include="..\PowerPlanManager.cs" Link="Source\PowerPlanManager.cs" />
     <Compile Include="..\PowerPlanOverridePolicy.cs" Link="Source\PowerPlanOverridePolicy.cs" />
     <Compile Include="..\StartupRegistrationValue.cs" Link="Source\StartupRegistrationValue.cs" />
+    <Compile Include="..\UserActivityState.cs" Link="Source\UserActivityState.cs" />
   </ItemGroup>
 </Project>
