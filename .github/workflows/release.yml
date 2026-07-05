@@ -49,16 +49,34 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\$env:PACKAGE_DIR" | Out-Null
           Copy-Item -Path publish\* -Destination "dist\$env:PACKAGE_DIR" -Recurse -Force
           Compress-Archive -Path "dist\$env:PACKAGE_DIR" -DestinationPath "dist\$env:ASSET_NAME" -Force
+
+          if (-not (Test-Path CHANGELOG.md)) {
+            throw "CHANGELOG.md is required for GitHub release notes."
+          }
+
+          $changelog = Get-Content -Raw -Encoding UTF8 CHANGELOG.md
+          $tagPattern = [regex]::Escape($env:TAG_NAME)
+          $match = [regex]::Match($changelog, "(?ms)^## \[$tagPattern\][^\r\n]*(?:\r?\n)(.*?)(?=^## \[|\z)")
+
+          if (-not $match.Success -or [string]::IsNullOrWhiteSpace($match.Groups[1].Value)) {
+            throw "Missing CHANGELOG.md notes for $($env:TAG_NAME)."
+          }
+
+          $releaseHighlights = $match.Groups[1].Value.Trim()
           @"
           # AutoPowerMode $env:TAG_NAME
 
-          ## 普通用户下载方式
+          ## 本次更新功能
+
+          $releaseHighlights
+
+          ## 下载与运行
 
           1. 下载 ``$env:ASSET_NAME``
           2. 解压 zip
           3. 进入解压后的文件夹，双击 ``AutoPowerMode.exe``
 
-          这是 Windows x64 framework-dependent 版本，体积较小，不内置 .NET 运行时。
+          Windows x64 framework-dependent 版本，体积较小，不内置 .NET 运行时。
           运行前需要 Windows 已安装 .NET 8 Desktop Runtime；不需要安装 .NET SDK。
           "@ | Set-Content -Path release-notes.md -Encoding UTF8
 
