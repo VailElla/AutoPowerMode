@@ -20,7 +20,11 @@ internal sealed class DiagnosticSnapshot
 
     public string IdleThreshold { get; init; } = string.Empty;
 
-    public string CheckInterval { get; init; } = string.Empty;
+    public string MonitoringSchedule { get; init; } = string.Empty;
+
+    public string IdleProtectionSettings { get; init; } = string.Empty;
+
+    public string CurrentIdleProtection { get; init; } = string.Empty;
 
     public bool NotificationsEnabled { get; init; }
 
@@ -49,7 +53,9 @@ internal sealed class DiagnosticSnapshot
             LocalizationService.Format("IdlePlanConfig", IdlePlanConfig),
             LocalizationService.Format("IdleTime", IdleTime),
             LocalizationService.Format("IdleThreshold", IdleThreshold),
-            LocalizationService.Format("CheckIntervalValue", CheckInterval),
+            LocalizationService.Format("MonitoringScheduleDiagnostic", MonitoringSchedule),
+            LocalizationService.Format("IdleProtectionSettings", IdleProtectionSettings),
+            LocalizationService.Format("CurrentIdleProtection", CurrentIdleProtection),
             LocalizationService.Format("NotificationsValue", LocalizationService.Text(NotificationsEnabled ? "Enabled" : "Disabled")),
             "",
             LocalizationService.Format("LastSwitch", LastSwitchStatus),

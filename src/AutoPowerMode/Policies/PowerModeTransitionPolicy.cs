@@ -26,6 +26,14 @@ internal sealed class PowerModeTransitionPolicy
         _idleDetectionCount = 0;
     }
 
+    public UserActivityState? SuppressIdleTransition()
+    {
+        _idleDetectionCount = 0;
+        return CurrentActivityState == UserActivityState.Active
+            ? null
+            : UserActivityState.Active;
+    }
+
     public UserActivityState? Evaluate(
         TimeSpan idleTime,
         TimeSpan idleThreshold,
