@@ -68,6 +68,17 @@ public sealed class PowerPlanManager
 
     public bool SetActivePlan(string guid)
     {
+        return TrySetActivePlan(guid, out _, out _);
+    }
+
+    public bool TrySetActivePlan(
+        string guid,
+        out PowerPlan? verifiedActivePlan,
+        out bool switchCommandExecuted)
+    {
+        verifiedActivePlan = null;
+        switchCommandExecuted = false;
+
         if (string.IsNullOrWhiteSpace(guid))
         {
             Logger.Error("目标电源计划 GUID 为空，无法切换。");
@@ -78,10 +89,13 @@ public sealed class PowerPlanManager
         if (GuidEquals(activePlan?.Guid, guid))
         {
             Logger.Info($"当前已是目标电源计划，跳过切换：{guid}");
+            verifiedActivePlan = activePlan;
+            LastPowerCfgError = string.Empty;
             return true;
         }
 
         var result = RunPowerCfg($"/setactive {guid}");
+        switchCommandExecuted = true;
         if (!result.Success)
         {
             LastPowerCfgError = $"powercfg /setactive failed. Guid={guid}; ExitCode={result.ExitCode}; Error={result.Error}; Output={result.Output}";
@@ -89,7 +103,20 @@ public sealed class PowerPlanManager
             return false;
         }
 
-        Logger.Info($"电源计划已切换：{guid}");
+        verifiedActivePlan = GetActivePowerPlan();
+        if (!GuidEquals(verifiedActivePlan?.Guid, guid))
+        {
+            var verificationDetail = verifiedActivePlan is null
+                ? LastPowerCfgError
+                : $"实际活跃计划={verifiedActivePlan.Name} ({verifiedActivePlan.Guid})";
+            LastPowerCfgError = $"powercfg /setactive verification failed. TargetGuid={guid}; {verificationDetail}";
+            Logger.Error($"电源计划切换后确认失败。目标={guid}；{verificationDetail}");
+            return false;
+        }
+
+        var confirmedPlan = verifiedActivePlan!;
+        LastPowerCfgError = string.Empty;
+        Logger.Info($"电源计划已切换并确认成功：{confirmedPlan.Name} ({confirmedPlan.Guid})");
         return true;
     }
 

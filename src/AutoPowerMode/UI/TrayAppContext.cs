@@ -7,8 +7,10 @@ namespace AutoPowerMode;
 public sealed class TrayAppContext : ApplicationContext
 {
     private static readonly TimeSpan SwitchCooldown = TimeSpan.FromSeconds(10);
+    private const int NotificationDurationMilliseconds = 5000;
 
     private readonly object _sync = new();
+    private readonly object _switchOperationSync = new();
     private readonly SynchronizationContext _uiContext;
     private readonly ConfigService _configService = new();
     private readonly StartupService _startupService = new();
@@ -42,7 +44,8 @@ public sealed class TrayAppContext : ApplicationContext
     private PowerPlan? _currentPowerPlan;
     private DateTimeOffset _lastSwitchTime = DateTimeOffset.MinValue;
     private DateTimeOffset _lastSwitchStatusTime = DateTimeOffset.MinValue;
-    private string _lastSwitchStatus = "尚未切换";
+    private string _lastSwitchStatus = string.Empty;
+    private string? _notifiedFailureTargetGuid;
     private bool _isExiting;
     private bool _configSaveFailureShown;
 
@@ -52,6 +55,8 @@ public sealed class TrayAppContext : ApplicationContext
         Logger.Info("软件启动。");
 
         _config = _configService.Load();
+        LocalizationService.UsePreference(_config.Language);
+        _lastSwitchStatus = LocalizationService.Text("NotSwitchedYet");
         InitializePowerPlans();
         SyncStartupRegistration();
 
@@ -83,7 +88,7 @@ public sealed class TrayAppContext : ApplicationContext
 
         if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
         {
-            SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
+            SaveConfigWithUserFeedback(LocalizationService.Text("SaveAutoMatchedPlansFailed"));
         }
 
         _currentPowerPlan = _powerPlanManager.GetActivePowerPlan();
@@ -101,12 +106,12 @@ public sealed class TrayAppContext : ApplicationContext
         _switchToActiveMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(UserActivityState.Active, manual: true, CancellationToken.None);
         _switchToIdleMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(UserActivityState.Idle, manual: true, CancellationToken.None);
         _resumeAutoControlMenuItem.Click += async (_, _) => await RestoreAutoControlAsync();
-        _diagnosticsMenuItem.Text = "诊断信息";
+        _diagnosticsMenuItem.Text = LocalizationService.Text("Diagnostics");
         _diagnosticsMenuItem.Click += (_, _) => OpenDiagnostics();
-        _settingsMenuItem.Text = "设置";
+        _settingsMenuItem.Text = LocalizationService.Text("Settings");
         _settingsMenuItem.Click += (_, _) => OpenSettings();
         _autoStartMenuItem.Click += (_, _) => ToggleAutoStart();
-        _exitMenuItem.Text = "退出";
+        _exitMenuItem.Text = LocalizationService.Text("Exit");
         _exitMenuItem.Click += (_, _) => ExitApplication();
 
         _menu.Opening += (_, _) =>
@@ -213,69 +218,225 @@ public sealed class TrayAppContext : ApplicationContext
         return Task.Run(
             () =>
             {
-                try
+                lock (_switchOperationSync)
                 {
-                    if (string.IsNullOrWhiteSpace(targetGuid))
+                    try
                     {
-                        Logger.Error("目标电源计划未配置。");
-                        SetLastSwitchStatus("失败：目标电源计划未配置");
-                        SetControlState(ControlState.NotConfigured);
-                        return;
-                    }
+                        if (string.IsNullOrWhiteSpace(targetGuid))
+                        {
+                            Logger.Error("目标电源计划未配置。");
+                            SetLastSwitchStatus(LocalizationService.Text("TargetPlanMissing"));
+                            SetControlState(ControlState.NotConfigured);
+                            NotifySwitchFailure(targetGuid, LocalizationService.Text("TargetPlanMissing"));
+                            return;
+                        }
 
-                    var activePlan = _powerPlanManager.GetActivePowerPlan();
-                    if (activePlan is not null)
-                    {
-                        SetCurrentPowerPlan(activePlan);
-                    }
+                        var targetPlan = _powerPlanManager.FindByGuid(_powerPlans, targetGuid);
+                        var targetPlanName = targetPlan?.Name ?? LocalizationService.Text("TargetPowerPlan");
+                        var activePlan = _powerPlanManager.GetActivePowerPlan();
+                        if (activePlan is not null)
+                        {
+                            SetCurrentPowerPlan(activePlan);
+                        }
 
-                    if (PowerPlanOverridePolicy.ShouldSkipAutomaticSwitch(manual, activePlan?.Guid, config))
-                    {
-                        Logger.Info($"检测到外部手动切换到非配置电源计划，跳过本次自动切换：{activePlan?.Name} ({activePlan?.Guid})");
-                        SetLastSwitchStatus("跳过：外部电源计划覆盖");
-                        SetControlState(ControlState.ExternalOverride);
-                        _transitionPolicy.Reset();
-                        return;
-                    }
+                        if (PowerPlanOverridePolicy.ShouldSkipAutomaticSwitch(manual, activePlan?.Guid, config))
+                        {
+                            var wasExternalOverride = _controlState == ControlState.ExternalOverride;
+                            Logger.Info($"检测到外部手动切换到非配置电源计划，跳过本次自动切换：{activePlan?.Name} ({activePlan?.Guid})");
+                            SetLastSwitchStatus(LocalizationService.Text("ExternalOverrideStatus"));
+                            SetControlState(ControlState.ExternalOverride);
+                            _transitionPolicy.Reset();
 
-                    if (!manual &&
-                        targetActivityState == UserActivityState.Idle &&
-                        DateTimeOffset.Now - _lastSwitchTime < SwitchCooldown)
-                    {
-                        return;
-                    }
+                            if (!wasExternalOverride)
+                            {
+                                ShowNotification(
+                                    LocalizationService.Text("ExternalChangeTitle"),
+                                    LocalizationService.Format(
+                                        "ExternalChangeMessage",
+                                        activePlan?.Name ?? LocalizationService.Text("Unknown")),
+                                    ToolTipIcon.Warning);
+                            }
 
-                    if (string.Equals(activePlan?.Guid, targetGuid, StringComparison.OrdinalIgnoreCase))
-                    {
-                        SetLastSwitchStatus("成功：当前已是目标电源计划");
-                        SetActivityState(targetActivityState);
-                        SetControlState(ControlState.Running);
-                        return;
-                    }
+                            return;
+                        }
 
-                    if (_powerPlanManager.SetActivePlan(targetGuid))
-                    {
-                        SetLastSwitchStatus("成功", successfulSwitch: true);
-                        var plan = _powerPlanManager.FindByGuid(_powerPlans, targetGuid)
-                                   ?? _powerPlanManager.GetActivePowerPlan();
-                        SetCurrentPowerPlan(plan);
-                        SetActivityState(targetActivityState);
-                        SetControlState(ControlState.Running);
+                        if (!manual &&
+                            targetActivityState == UserActivityState.Idle &&
+                            DateTimeOffset.Now - _lastSwitchTime < SwitchCooldown)
+                        {
+                            return;
+                        }
+
+                        if (PowerPlanManager.GuidEquals(activePlan?.Guid, targetGuid))
+                        {
+                            HandleAlreadyActivePlan(activePlan!, targetActivityState, manual);
+                            return;
+                        }
+
+                        if (_powerPlanManager.TrySetActivePlan(
+                                targetGuid,
+                                out var verifiedPlan,
+                                out var switchCommandExecuted))
+                        {
+                            if (!switchCommandExecuted && verifiedPlan is not null)
+                            {
+                                HandleAlreadyActivePlan(verifiedPlan, targetActivityState, manual);
+                                return;
+                            }
+
+                            var switchedPlan = verifiedPlan ?? targetPlan;
+                            var switchStatus = activePlan is null
+                                ? LocalizationService.Format("SwitchSuccessTo", switchedPlan?.Name ?? targetPlanName)
+                                : LocalizationService.Format("SwitchSuccessFromTo", activePlan.Name, switchedPlan?.Name ?? targetPlanName);
+
+                            ClearFailureNotification();
+                            SetLastSwitchStatus(switchStatus, successfulSwitch: true);
+                            SetCurrentPowerPlan(switchedPlan);
+                            SetActivityState(targetActivityState);
+                            SetControlState(ControlState.Running);
+                            ShowSuccessfulSwitchNotification(activePlan, switchedPlan, targetPlanName);
+                        }
+                        else
+                        {
+                            if (verifiedPlan is not null)
+                            {
+                                SetCurrentPowerPlan(verifiedPlan);
+                            }
+
+                            SetLastSwitchStatus(LocalizationService.Text("SwitchFailedStatus"));
+                            SetControlState(ControlState.SwitchFailed);
+                            NotifySwitchFailure(targetGuid, targetPlanName);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        SetLastSwitchStatus("失败：powercfg /setactive 未成功");
+                        Logger.Error("电源计划切换异常。", ex);
+                        SetLastSwitchStatus(LocalizationService.Text("SwitchExceptionStatus"));
                         SetControlState(ControlState.SwitchFailed);
+                        NotifySwitchFailure(
+                            targetGuid,
+                            _powerPlanManager.FindByGuid(_powerPlans, targetGuid)?.Name
+                            ?? LocalizationService.Text("TargetPowerPlan"));
                     }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("电源计划切换异常。", ex);
-                    SetLastSwitchStatus("失败：电源计划切换异常");
-                    SetControlState(ControlState.SwitchFailed);
                 }
             },
             cancellationToken);
+    }
+
+    private void HandleAlreadyActivePlan(PowerPlan activePlan, UserActivityState targetActivityState, bool manual)
+    {
+        var previousActivityState = _userActivityState;
+        var disposition = PowerPlanNotificationPolicy.ClassifyAlreadyActivePlan(
+            previousActivityState,
+            targetActivityState,
+            manual);
+
+        ClearFailureNotification();
+        SetCurrentPowerPlan(activePlan);
+        SetActivityState(targetActivityState);
+        SetControlState(ControlState.Running);
+
+        switch (disposition)
+        {
+            case AlreadyActivePlanDisposition.StartupSynchronized:
+                SetLastSwitchStatus(LocalizationService.Format("StartupSynchronized", activePlan.Name));
+                ShowNotification(
+                    LocalizationService.Text("StartupNotificationTitle"),
+                    LocalizationService.Format("CurrentPlanNotification", activePlan.Name),
+                    ToolTipIcon.Info);
+                break;
+
+            case AlreadyActivePlanDisposition.ExternalChangeDetected:
+                Logger.Info($"检测到目标电源计划已在本次自动切换前激活：{activePlan.Name} ({activePlan.Guid})");
+                SetLastSwitchStatus(LocalizationService.Format("ExternalActivatedStatus", activePlan.Name));
+                ShowNotification(
+                    LocalizationService.Text("PlanChangeDetectedTitle"),
+                    LocalizationService.Format("PlanChangeDetectedMessage", activePlan.Name),
+                    ToolTipIcon.Warning);
+                break;
+
+            default:
+                SetLastSwitchStatus(LocalizationService.Format("NoSwitchNeededStatus", activePlan.Name));
+                if (manual)
+                {
+                    ShowNotification(
+                        LocalizationService.Text("NoSwitchNeededTitle"),
+                        LocalizationService.Format("CurrentPlanNotification", activePlan.Name),
+                        ToolTipIcon.Info);
+                }
+
+                break;
+        }
+    }
+
+    private void ShowSuccessfulSwitchNotification(PowerPlan? previousPlan, PowerPlan? currentPlan, string fallbackTargetName)
+    {
+        var currentPlanName = currentPlan?.Name ?? fallbackTargetName;
+        var message = previousPlan is null
+            ? LocalizationService.Format("SwitchedToMessage", currentPlanName)
+            : LocalizationService.Format("SwitchedFromToMessage", previousPlan.Name, currentPlanName);
+
+        ShowNotification(LocalizationService.Text("PowerModeSwitchedTitle"), message, ToolTipIcon.Info);
+    }
+
+    private void NotifySwitchFailure(string targetGuid, string targetPlanName)
+    {
+        if (!GetConfigSnapshot().NotificationsEnabled)
+        {
+            return;
+        }
+
+        var failureKey = string.IsNullOrWhiteSpace(targetGuid) ? "<not-configured>" : targetGuid;
+        if (string.Equals(_notifiedFailureTargetGuid, failureKey, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _notifiedFailureTargetGuid = failureKey;
+        ShowNotification(
+            LocalizationService.Text("SwitchFailedTitle"),
+            LocalizationService.Format("SwitchFailedMessage", targetPlanName),
+            ToolTipIcon.Error);
+    }
+
+    private void ClearFailureNotification()
+    {
+        _notifiedFailureTargetGuid = null;
+    }
+
+    private void ShowNotification(string title, string message, ToolTipIcon icon)
+    {
+        if (!GetConfigSnapshot().NotificationsEnabled || _isExiting)
+        {
+            return;
+        }
+
+        PostToUi(
+            () =>
+            {
+                try
+                {
+                    _notifyIcon.ShowBalloonTip(
+                        NotificationDurationMilliseconds,
+                        TruncateNotificationText(title, 63),
+                        TruncateNotificationText(message, 255),
+                        icon);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("显示系统通知失败。", ex);
+                }
+            });
+    }
+
+    private static string TruncateNotificationText(string value, int maximumLength)
+    {
+        if (value.Length <= maximumLength)
+        {
+            return value;
+        }
+
+        return value[..Math.Max(0, maximumLength - 1)] + "…";
     }
 
     private void TogglePause()
@@ -286,7 +447,7 @@ public sealed class TrayAppContext : ApplicationContext
             Logger.Info(_config.IsPaused ? "用户暂停自动切换。" : "用户恢复自动切换。");
         }
 
-        SaveConfigWithUserFeedback("暂停状态保存失败，下次启动可能无法恢复当前暂停状态。");
+        SaveConfigWithUserFeedback(LocalizationService.Text("PauseSaveFailed"));
 
         RefreshStateFromConfig();
         RefreshMenuItems();
@@ -305,7 +466,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_startupService.SetEnabled(targetEnabled))
         {
             MessageBox.Show(
-                "开机自启设置失败，详情请查看日志。",
+                LocalizationService.Text("AutoStartChangeFailed"),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -316,7 +477,7 @@ public sealed class TrayAppContext : ApplicationContext
             _config.AutoStart = _startupService.IsEnabled();
         }
 
-        SaveConfigWithUserFeedback("开机自启设置保存失败，下次启动可能无法恢复当前设置。");
+        SaveConfigWithUserFeedback(LocalizationService.Text("AutoStartSaveFailed"));
 
         RefreshMenuItems();
     }
@@ -336,7 +497,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
             {
-                SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
+                SaveConfigWithUserFeedback(LocalizationService.Text("SaveAutoMatchedPlansFailed"));
             }
         }
 
@@ -355,10 +516,14 @@ public sealed class TrayAppContext : ApplicationContext
 
     private void ApplySettings(AppConfig newConfig)
     {
+        var previousLanguagePreference = GetConfigSnapshot().Language;
+        newConfig.Normalize();
+        LocalizationService.UsePreference(newConfig.Language);
+
         if (!_startupService.SetEnabled(newConfig.AutoStart))
         {
             MessageBox.Show(
-                "开机自启设置失败，已保留当前注册表状态。详情请查看日志。",
+                LocalizationService.Text("AutoStartStatePreserved"),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -370,17 +535,22 @@ public sealed class TrayAppContext : ApplicationContext
             _powerPlanManager.TryAutoConfigure(newConfig, _powerPlans);
         }
 
-        newConfig.Normalize();
+        if (!string.Equals(previousLanguagePreference, newConfig.Language, StringComparison.Ordinal))
+        {
+            _lastSwitchStatus = LocalizationService.Text("NotSwitchedYet");
+            _lastSwitchStatusTime = DateTimeOffset.MinValue;
+        }
 
         lock (_sync)
         {
             _config = newConfig;
         }
 
-        SaveConfigWithUserFeedback("设置保存失败，下次启动可能无法恢复本次修改。", alwaysShowFailure: true);
+        SaveConfigWithUserFeedback(LocalizationService.Text("SettingsSaveFailed"), alwaysShowFailure: true);
         Logger.Info("用户修改设置。");
         RefreshStateFromConfig();
         RefreshMenuItems();
+        _diagnosticForm?.Close();
 
         if (!newConfig.IsPaused)
         {
@@ -423,7 +593,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             Logger.Error("打开日志目录失败。", ex);
             MessageBox.Show(
-                $"打开日志目录失败。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                $"{LocalizationService.Text("OpenLogFailed")}{Environment.NewLine}{Logger.GetLogLocationMessage()}",
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -437,7 +607,7 @@ public sealed class TrayAppContext : ApplicationContext
         {
             if (_powerPlanManager.TryAutoConfigure(_config, _powerPlans))
             {
-                SaveConfigWithUserFeedback("保存自动匹配到的电源计划失败。");
+                SaveConfigWithUserFeedback(LocalizationService.Text("SaveAutoMatchedPlansFailed"));
             }
         }
 
@@ -456,7 +626,7 @@ public sealed class TrayAppContext : ApplicationContext
                 _config.IsPaused = false;
             }
 
-            SaveConfigWithUserFeedback("恢复自动控制状态保存失败。");
+            SaveConfigWithUserFeedback(LocalizationService.Text("RestoreStateSaveFailed"));
             config = GetConfigSnapshot();
         }
 
@@ -496,7 +666,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (!_startupService.SetEnabled(_config.AutoStart))
         {
             _config.AutoStart = _startupService.IsEnabled();
-            SaveConfigWithUserFeedback("同步开机自启状态保存失败。");
+            SaveConfigWithUserFeedback(LocalizationService.Text("SyncAutoStartSaveFailed"));
         }
         else
         {
@@ -530,22 +700,25 @@ public sealed class TrayAppContext : ApplicationContext
 
         var config = GetConfigSnapshot();
         var statusText = GetDisplayStatusText(config);
-        var currentPowerPlanName = _currentPowerPlan?.Name ?? "未知";
-        var autoStartText = _startupService.IsEnabled() ? "已开启" : "已关闭";
+        var currentPowerPlanName = _currentPowerPlan?.Name ?? LocalizationService.Text("Unknown");
+        var autoStartText = LocalizationService.Text(_startupService.IsEnabled() ? "Enabled" : "Disabled");
 
-        _versionMenuItem.Text = $"版本：{AppInfo.Version}";
-        _statusMenuItem.Text = $"当前状态：{statusText}";
-        _currentPlanMenuItem.Text = $"当前电源计划：{currentPowerPlanName}";
-        _idleThresholdMenuItem.Text = $"空闲阈值：{config.IdleThresholdSeconds} 秒";
-        _checkIntervalMenuItem.Text = $"检测间隔：{config.CheckIntervalSeconds} 秒";
-        _togglePauseMenuItem.Text = config.IsPaused ? "恢复自动切换" : "暂停自动切换";
-        _switchToActiveMenuItem.Text = "立即切换到高性能计划";
-        _switchToIdleMenuItem.Text = "立即切换到节能计划";
+        _versionMenuItem.Text = LocalizationService.Format("VersionMenu", AppInfo.Version);
+        _statusMenuItem.Text = LocalizationService.Format("StatusMenu", statusText);
+        _currentPlanMenuItem.Text = LocalizationService.Format("CurrentPlanMenu", currentPowerPlanName);
+        _idleThresholdMenuItem.Text = LocalizationService.Format("IdleThresholdMenu", config.IdleThresholdSeconds);
+        _checkIntervalMenuItem.Text = LocalizationService.Format("CheckIntervalMenu", config.CheckIntervalSeconds);
+        _togglePauseMenuItem.Text = LocalizationService.Text(config.IsPaused ? "ResumeSwitching" : "PauseSwitching");
+        _switchToActiveMenuItem.Text = LocalizationService.Text("SwitchToActive");
+        _switchToIdleMenuItem.Text = LocalizationService.Text("SwitchToIdle");
         _switchToActiveMenuItem.Enabled = _powerPlanManager.FindByGuid(_powerPlans, config.ActivePowerPlanGuid) is not null;
         _switchToIdleMenuItem.Enabled = _powerPlanManager.FindByGuid(_powerPlans, config.IdlePowerPlanGuid) is not null;
-        _resumeAutoControlMenuItem.Text = "恢复 AutoPowerMode 自动控制";
+        _resumeAutoControlMenuItem.Text = LocalizationService.Text("RestoreAutoControl");
         _resumeAutoControlMenuItem.Enabled = IsConfigured(config) && _controlState is ControlState.ExternalOverride or ControlState.SwitchFailed;
-        _autoStartMenuItem.Text = $"开机自启：{autoStartText}";
+        _diagnosticsMenuItem.Text = LocalizationService.Text("Diagnostics");
+        _settingsMenuItem.Text = LocalizationService.Text("Settings");
+        _autoStartMenuItem.Text = LocalizationService.Format("AutoStartMenu", autoStartText);
+        _exitMenuItem.Text = LocalizationService.Text("Exit");
 
         try
         {
@@ -561,25 +734,25 @@ public sealed class TrayAppContext : ApplicationContext
     {
         if (config.IsPaused)
         {
-            return "用户暂停自动切换";
+            return LocalizationService.Text("StatusPaused");
         }
 
         if (!IsConfigured(config))
         {
-            return "NotConfigured（电源计划未配置）";
+            return LocalizationService.Text("StatusNotConfigured");
         }
 
         return _controlState switch
         {
-            ControlState.ExternalOverride => "外部电源计划覆盖，自动切换已暂停",
-            ControlState.SwitchFailed => "切换失败，请打开诊断信息查看 powercfg 错误",
-            ControlState.PausedByUser => "用户暂停自动切换",
-            ControlState.NotConfigured => "NotConfigured（电源计划未配置）",
+            ControlState.ExternalOverride => LocalizationService.Text("StatusExternalOverride"),
+            ControlState.SwitchFailed => LocalizationService.Text("StatusSwitchFailed"),
+            ControlState.PausedByUser => LocalizationService.Text("StatusPaused"),
+            ControlState.NotConfigured => LocalizationService.Text("StatusNotConfigured"),
             _ => _userActivityState switch
             {
-                UserActivityState.Active => "活跃，使用高性能计划",
-                UserActivityState.Idle => "空闲，使用节能计划",
-                _ => "自动切换正常运行，等待下一次检测"
+                UserActivityState.Active => LocalizationService.Text("StatusActive"),
+                UserActivityState.Idle => LocalizationService.Text("StatusIdle"),
+                _ => LocalizationService.Text("StatusWaiting")
             }
         };
     }
@@ -608,7 +781,7 @@ public sealed class TrayAppContext : ApplicationContext
     private DiagnosticSnapshot BuildDiagnosticSnapshot()
     {
         var config = GetConfigSnapshot();
-        var idleTimeText = "未知";
+        var idleTimeText = LocalizationService.Text("Unknown");
         try
         {
             idleTimeText = FormatDuration(_idleDetector.GetIdleTime());
@@ -630,11 +803,12 @@ public sealed class TrayAppContext : ApplicationContext
             IdleTime = idleTimeText,
             IdleThreshold = FormatDuration(TimeSpan.FromSeconds(config.IdleThresholdSeconds)),
             CheckInterval = FormatDuration(TimeSpan.FromSeconds(config.CheckIntervalSeconds)),
+            NotificationsEnabled = config.NotificationsEnabled,
             LastSwitchStatus = _lastSwitchStatusTime == DateTimeOffset.MinValue
                 ? _lastSwitchStatus
                 : $"{_lastSwitchStatus}（{_lastSwitchStatusTime:yyyy-MM-dd HH:mm:ss}）",
             LastPowerCfgError = string.IsNullOrWhiteSpace(_powerPlanManager.LastPowerCfgError)
-                ? "无"
+                ? LocalizationService.Text("None")
                 : _powerPlanManager.LastPowerCfgError,
             ConfigPath = Logger.SanitizeMessage(_configService.ConfigPath),
             LogPath = Logger.SanitizeMessage(Logger.LogFilePath),
@@ -649,22 +823,28 @@ public sealed class TrayAppContext : ApplicationContext
             return $"{plan.Name} ({plan.Guid})";
         }
 
-        return string.IsNullOrWhiteSpace(fallbackGuid) ? "未配置" : $"未找到 ({fallbackGuid})";
+        return string.IsNullOrWhiteSpace(fallbackGuid)
+            ? LocalizationService.Text("NotConfigured")
+            : LocalizationService.Format("PlanNotFound", fallbackGuid);
     }
 
     private static string FormatDuration(TimeSpan duration)
     {
         if (duration.TotalHours >= 1)
         {
-            return $"{(int)duration.TotalHours} 小时 {duration.Minutes} 分 {duration.Seconds} 秒";
+            return LocalizationService.Format(
+                "HoursMinutesSeconds",
+                (int)duration.TotalHours,
+                duration.Minutes,
+                duration.Seconds);
         }
 
         if (duration.TotalMinutes >= 1)
         {
-            return $"{duration.Minutes} 分 {duration.Seconds} 秒";
+            return LocalizationService.Format("MinutesSeconds", duration.Minutes, duration.Seconds);
         }
 
-        return $"{Math.Max(0, (int)duration.TotalSeconds)} 秒";
+        return LocalizationService.Format("SecondsValue", Math.Max(0, (int)duration.TotalSeconds));
     }
 
     private AppConfig GetConfigSnapshot()
@@ -759,7 +939,7 @@ public sealed class TrayAppContext : ApplicationContext
         try
         {
             _cancellationTokenSource.Cancel();
-            SaveConfigWithUserFeedback("退出前保存配置失败，下次启动可能无法恢复最后一次修改。");
+            SaveConfigWithUserFeedback(LocalizationService.Text("ExitSaveFailed"));
             _monitorTask?.Wait(TimeSpan.FromSeconds(3));
         }
         catch (Exception ex)

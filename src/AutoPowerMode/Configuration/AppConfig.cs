@@ -7,8 +7,8 @@ public sealed class AppConfig
     public const int MinIdleThresholdSeconds = 10;
     public const int MaxIdleThresholdSeconds = 14400;
     public const int DefaultIdleThresholdSeconds = 1200;
-    public const int MinCheckIntervalSeconds = 5;
-    public const int MaxCheckIntervalSeconds = 3600;
+    public const int MinCheckIntervalSeconds = 1;
+    public const int MaxCheckIntervalSeconds = 60;
     public const int DefaultCheckIntervalSeconds = 10;
 
     public int IdleThresholdSeconds { get; set; } = DefaultIdleThresholdSeconds;
@@ -26,6 +26,10 @@ public sealed class AppConfig
     public string ActivePowerPlanGuid { get; set; } = string.Empty;
 
     public bool AutoStart { get; set; }
+
+    public bool NotificationsEnabled { get; set; } = true;
+
+    public string Language { get; set; } = AppLanguagePreference.System;
 
     public bool IsPaused { get; set; }
 
@@ -47,6 +51,8 @@ public sealed class AppConfig
             IdlePowerPlanGuid = IdlePowerPlanGuid,
             ActivePowerPlanGuid = ActivePowerPlanGuid,
             AutoStart = AutoStart,
+            NotificationsEnabled = NotificationsEnabled,
+            Language = Language,
             IsPaused = IsPaused,
             PowerPlansConfiguredByUser = PowerPlansConfiguredByUser
         };
@@ -76,5 +82,6 @@ public sealed class AppConfig
 
         IdlePowerPlanGuid = IdlePowerPlanGuid.Trim();
         ActivePowerPlanGuid = ActivePowerPlanGuid.Trim();
+        Language = AppLanguagePreference.Normalize(Language);
     }
 }

@@ -7,10 +7,12 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
+        LocalizationService.UsePreference(AppLanguagePreference.System);
+
         if (!OperatingSystem.IsWindows())
         {
             MessageBox.Show(
-                "AutoPowerMode 只能在 Windows 上运行。",
+                LocalizationService.Text("WindowsOnly"),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -23,7 +25,7 @@ internal static class Program
         {
             Logger.Error("WinForms UI 线程异常。", args.Exception);
             MessageBox.Show(
-                $"程序遇到异常，详情请查看日志。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                $"{LocalizationService.Text("UiThreadError")}{Environment.NewLine}{Logger.GetLogLocationMessage()}",
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -49,7 +51,7 @@ internal static class Program
                 if (!singleInstanceService.SignalExistingInstance())
                 {
                     MessageBox.Show(
-                        "AutoPowerMode 已在运行，但无法自动打开现有窗口。请从系统托盘打开设置。",
+                        LocalizationService.Text("ExistingInstanceOpenFailed"),
                         AppInfo.DisplayName,
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information);
@@ -66,7 +68,7 @@ internal static class Program
         {
             Logger.Error("程序启动失败。", ex);
             MessageBox.Show(
-                $"程序启动失败，详情请查看日志。{Environment.NewLine}{Logger.GetLogLocationMessage()}",
+                $"{LocalizationService.Text("StartupFailed")}{Environment.NewLine}{Logger.GetLogLocationMessage()}",
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);

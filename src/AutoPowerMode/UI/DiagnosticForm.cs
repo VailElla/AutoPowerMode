@@ -22,7 +22,7 @@ internal sealed class DiagnosticForm : Form
         _redetectPowerPlans = redetectPowerPlans;
         _restoreAutoControlAsync = restoreAutoControlAsync;
 
-        Text = "AutoPowerMode 诊断";
+        Text = LocalizationService.Text("DiagnosticsHeading");
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         MinimizeBox = false;
@@ -58,27 +58,27 @@ internal sealed class DiagnosticForm : Form
             WrapContents = false
         };
 
-        var closeButton = CreateButton("关闭");
+        var closeButton = CreateButton(LocalizationService.Text("Close"));
         closeButton.Click += (_, _) => Close();
 
-        var restoreButton = CreateButton("恢复自动控制");
+        var restoreButton = CreateButton(LocalizationService.Text("RestoreAutoControl"));
         restoreButton.Click += async (_, _) =>
         {
             await _restoreAutoControlAsync();
             RefreshSnapshot();
         };
 
-        var redetectButton = CreateButton("重新检测电源计划");
+        var redetectButton = CreateButton(LocalizationService.Text("RedetectPowerPlans"));
         redetectButton.Click += (_, _) =>
         {
             _redetectPowerPlans();
             RefreshSnapshot();
         };
 
-        var openLogButton = CreateButton("打开日志目录");
+        var openLogButton = CreateButton(LocalizationService.Text("OpenLogDirectory"));
         openLogButton.Click += (_, _) => _openLogDirectory();
 
-        var copyButton = CreateButton("复制诊断信息");
+        var copyButton = CreateButton(LocalizationService.Text("CopyDiagnostics"));
         copyButton.Click += (_, _) =>
         {
             try
@@ -89,7 +89,7 @@ internal sealed class DiagnosticForm : Form
             {
                 Logger.Error("复制诊断信息失败。", ex);
                 MessageBox.Show(
-                    "复制诊断信息失败，详情请查看日志。",
+                    LocalizationService.Text("CopyDiagnosticsFailed"),
                     AppInfo.DisplayName,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);

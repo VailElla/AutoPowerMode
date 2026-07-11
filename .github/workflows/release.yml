@@ -30,10 +30,14 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
+      - name: Run logic tests
+        shell: pwsh
+        run: dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj --configuration Release
+
       - name: Publish framework-dependent Windows app
         shell: pwsh
         run: >-
-          dotnet publish AutoPowerMode.csproj
+          dotnet publish src/AutoPowerMode/AutoPowerMode.csproj
           -c Release
           -r win-x64
           --self-contained false
