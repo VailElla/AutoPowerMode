@@ -5,7 +5,9 @@ var tests = new (string Name, Action Run)[]
 {
     ("ConfigService migrates legacy idle minutes to seconds", ConfigServiceTests.MigratesLegacyIdleMinutesToSeconds),
     ("ConfigService keeps current idle seconds over legacy minutes", ConfigServiceTests.KeepsCurrentIdleSecondsOverLegacyMinutes),
-    ("ConfigService removes obsolete check intervals when saving", ConfigServiceTests.RemovesObsoleteCheckIntervalsWhenSaving),
+    ("ConfigService defaults independent check intervals", ConfigServiceTests.DefaultsIndependentCheckIntervals),
+    ("ConfigService migrates legacy check intervals", ConfigServiceTests.MigratesLegacyCheckIntervals),
+    ("ConfigService preserves independent check intervals", ConfigServiceTests.PreservesIndependentCheckIntervals),
     ("ConfigService defaults AutoStart to false", ConfigServiceTests.DefaultsAutoStartToFalse),
     ("ConfigService defaults notifications to enabled", ConfigServiceTests.DefaultsNotificationsToEnabled),
     ("ConfigService preserves disabled notifications", ConfigServiceTests.PreservesDisabledNotifications),
@@ -27,12 +29,13 @@ var tests = new (string Name, Action Run)[]
     ("PowerModeTransitionPolicy requires consecutive idle confirmations", PowerModeTransitionPolicyTests.RequiresConsecutiveIdleConfirmations),
     ("PowerModeTransitionPolicy resumes active immediately", PowerModeTransitionPolicyTests.ResumesActiveImmediately),
     ("PowerModeTransitionPolicy cancels pending idle confirmations when protected", PowerModeTransitionPolicyTests.ProtectionCancelsPendingIdleConfirmations),
-    ("MonitoringIntervalPolicy uses thirty seconds while active and one second while idle", MonitoringIntervalPolicyTests.UsesRequiredIntervals),
+    ("MonitoringIntervalPolicy uses configured active and idle intervals", MonitoringIntervalPolicyTests.UsesConfiguredIntervals),
     ("SystemIdleProtectionDetector recognizes blocking execution-state flags", SystemIdleProtectionDetectorTests.RecognizesBlockingExecutionStateFlags),
     ("SystemIdleProtectionDetector recognizes fullscreen monitor bounds", SystemIdleProtectionDetectorTests.RecognizesFullscreenMonitorBounds),
     ("SystemIdleProtectionDetector excludes Windows shell surfaces", SystemIdleProtectionDetectorTests.ExcludesWindowsShellSurfaces),
     ("DpiLayoutPolicy scales from one hundred to two hundred fifty percent", DpiLayoutPolicyTests.ScalesAcrossSupportedDpiRange),
     ("DpiLayoutPolicy clamps to the monitor working area", DpiLayoutPolicyTests.ClampsToWorkingArea),
+    ("DpiLayoutPolicy fits initial size to preferred content", DpiLayoutPolicyTests.FitsInitialSizeToPreferredContent),
     ("PowerPlanNotificationPolicy classifies startup synchronization", PowerPlanNotificationPolicyTests.ClassifiesStartupSynchronization),
     ("PowerPlanNotificationPolicy detects external configured-plan changes", PowerPlanNotificationPolicyTests.DetectsExternalConfiguredPlanChanges),
     ("PowerPlanNotificationPolicy does not misclassify manual no-op", PowerPlanNotificationPolicyTests.DoesNotMisclassifyManualNoOp),
@@ -98,7 +101,21 @@ internal static class ConfigServiceTests
         Assert.Equal(45, config.IdleThresholdSeconds);
     }
 
-    public static void RemovesObsoleteCheckIntervalsWhenSaving()
+    public static void DefaultsIndependentCheckIntervals()
+    {
+        var config = ConfigService.Deserialize("{}");
+        var serialized = ConfigService.Serialize(config);
+        var clone = config.Clone();
+
+        Assert.Equal(30, config.ActiveCheckIntervalSeconds);
+        Assert.Equal(1, config.IdleCheckIntervalSeconds);
+        Assert.Contains("\"activeCheckIntervalSeconds\": 30", serialized);
+        Assert.Contains("\"idleCheckIntervalSeconds\": 1", serialized);
+        Assert.Equal(30, clone.ActiveCheckIntervalSeconds);
+        Assert.Equal(1, clone.IdleCheckIntervalSeconds);
+    }
+
+    public static void MigratesLegacyCheckIntervals()
     {
         var config = ConfigService.Deserialize(
             """
@@ -110,8 +127,43 @@ internal static class ConfigServiceTests
 
         var serialized = ConfigService.Serialize(config);
 
+        Assert.Equal(6, config.ActiveCheckIntervalSeconds);
+        Assert.Equal(1, config.IdleCheckIntervalSeconds);
+        Assert.Contains("\"activeCheckIntervalSeconds\": 6", serialized);
+        Assert.Contains("\"idleCheckIntervalSeconds\": 1", serialized);
         Assert.DoesNotContain("checkIntervalSeconds", serialized);
         Assert.DoesNotContain("checkIntervalMinutes", serialized);
+
+        var legacyMinutes = ConfigService.Deserialize("{ \"checkIntervalMinutes\": 2 }");
+        Assert.Equal(60, legacyMinutes.ActiveCheckIntervalSeconds);
+    }
+
+    public static void PreservesIndependentCheckIntervals()
+    {
+        var config = ConfigService.Deserialize(
+            """
+            {
+              "activeCheckIntervalSeconds": 45,
+              "idleCheckIntervalSeconds": 2,
+              "checkIntervalSeconds": 6
+            }
+            """);
+
+        var serialized = ConfigService.Serialize(config);
+        var clone = config.Clone();
+
+        Assert.Equal(45, config.ActiveCheckIntervalSeconds);
+        Assert.Equal(2, config.IdleCheckIntervalSeconds);
+        Assert.Contains("\"activeCheckIntervalSeconds\": 45", serialized);
+        Assert.Contains("\"idleCheckIntervalSeconds\": 2", serialized);
+        Assert.DoesNotContain("checkIntervalSeconds", serialized);
+        Assert.Equal(45, clone.ActiveCheckIntervalSeconds);
+        Assert.Equal(2, clone.IdleCheckIntervalSeconds);
+
+        var normalized = ConfigService.Deserialize(
+            "{ \"activeCheckIntervalSeconds\": 90, \"idleCheckIntervalSeconds\": 0 }");
+        Assert.Equal(60, normalized.ActiveCheckIntervalSeconds);
+        Assert.Equal(1, normalized.IdleCheckIntervalSeconds);
     }
 
     public static void DefaultsAutoStartToFalse()
@@ -434,13 +486,13 @@ internal static class PowerModeTransitionPolicyTests
 
 internal static class MonitoringIntervalPolicyTests
 {
-    public static void UsesRequiredIntervals()
+    public static void UsesConfiguredIntervals()
     {
-        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.ActiveInterval);
-        Assert.Equal(TimeSpan.FromSeconds(1), MonitoringIntervalPolicy.IdleInterval);
-        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.GetInterval(UserActivityState.Unknown));
-        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.GetInterval(UserActivityState.Active));
-        Assert.Equal(TimeSpan.FromSeconds(1), MonitoringIntervalPolicy.GetInterval(UserActivityState.Idle));
+        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.GetInterval(UserActivityState.Unknown, 30, 1));
+        Assert.Equal(TimeSpan.FromSeconds(12), MonitoringIntervalPolicy.GetInterval(UserActivityState.Active, 12, 3));
+        Assert.Equal(TimeSpan.FromSeconds(3), MonitoringIntervalPolicy.GetInterval(UserActivityState.Idle, 12, 3));
+        Assert.Equal(TimeSpan.FromSeconds(1), MonitoringIntervalPolicy.GetInterval(UserActivityState.Active, 0, 3));
+        Assert.Equal(TimeSpan.FromSeconds(60), MonitoringIntervalPolicy.GetInterval(UserActivityState.Idle, 12, 90));
     }
 }
 
@@ -512,6 +564,24 @@ internal static class DpiLayoutPolicyTests
         Assert.Equal(new Size(700, 440), metrics.MaximumClientSize);
         Assert.Equal(metrics.MaximumClientSize, metrics.MinimumClientSize);
         Assert.Equal(metrics.MaximumClientSize, metrics.InitialClientSize);
+    }
+
+    public static void FitsInitialSizeToPreferredContent()
+    {
+        var metrics = new DpiLayoutMetrics(
+            new Size(460, 270),
+            new Size(400, 240),
+            new Size(800, 600));
+
+        Assert.Equal(
+            new Size(520, 390),
+            DpiLayoutPolicy.FitInitialClientSize(metrics, new Size(520, 390)));
+        Assert.Equal(
+            metrics.InitialClientSize,
+            DpiLayoutPolicy.FitInitialClientSize(metrics, new Size(320, 180)));
+        Assert.Equal(
+            metrics.MaximumClientSize,
+            DpiLayoutPolicy.FitInitialClientSize(metrics, new Size(1200, 900)));
     }
 }
 

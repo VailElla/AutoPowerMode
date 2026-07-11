@@ -148,7 +148,11 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 await EvaluateOnceAsync(cancellationToken);
 
-                var delay = MonitoringIntervalPolicy.GetInterval(_userActivityState);
+                var config = GetConfigSnapshot();
+                var delay = MonitoringIntervalPolicy.GetInterval(
+                    _userActivityState,
+                    config.ActiveCheckIntervalSeconds,
+                    config.IdleCheckIntervalSeconds);
                 await Task.Delay(delay, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -757,8 +761,8 @@ public sealed class TrayAppContext : ApplicationContext
         _idleThresholdMenuItem.Text = LocalizationService.Format("IdleThresholdMenu", config.IdleThresholdSeconds);
         _monitoringScheduleMenuItem.Text = LocalizationService.Format(
             "MonitoringScheduleMenu",
-            (int)MonitoringIntervalPolicy.ActiveInterval.TotalSeconds,
-            (int)MonitoringIntervalPolicy.IdleInterval.TotalSeconds);
+            config.ActiveCheckIntervalSeconds,
+            config.IdleCheckIntervalSeconds);
         _togglePauseMenuItem.Text = LocalizationService.Text(config.IsPaused ? "ResumeSwitching" : "PauseSwitching");
         _switchToActiveMenuItem.Text = LocalizationService.Text("SwitchToActive");
         _switchToIdleMenuItem.Text = LocalizationService.Text("SwitchToIdle");
@@ -862,8 +866,8 @@ public sealed class TrayAppContext : ApplicationContext
             IdleThreshold = FormatDuration(TimeSpan.FromSeconds(config.IdleThresholdSeconds)),
             MonitoringSchedule = LocalizationService.Format(
                 "MonitoringScheduleValue",
-                (int)MonitoringIntervalPolicy.ActiveInterval.TotalSeconds,
-                (int)MonitoringIntervalPolicy.IdleInterval.TotalSeconds),
+                config.ActiveCheckIntervalSeconds,
+                config.IdleCheckIntervalSeconds),
             IdleProtectionSettings = LocalizationService.Format(
                 "IdleProtectionSettingsValue",
                 LocalizationService.Text(config.PreventIdleOnExecutionState ? "Enabled" : "Disabled"),

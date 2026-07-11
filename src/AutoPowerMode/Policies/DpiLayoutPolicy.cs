@@ -38,6 +38,19 @@ internal static class DpiLayoutPolicy
         return new DpiLayoutMetrics(initialClientSize, minimumClientSize, maximumClientSize);
     }
 
+    public static Size FitInitialClientSize(DpiLayoutMetrics metrics, Size preferredContentSize)
+    {
+        return new Size(
+            Math.Clamp(
+                Math.Max(metrics.InitialClientSize.Width, preferredContentSize.Width),
+                metrics.MinimumClientSize.Width,
+                metrics.MaximumClientSize.Width),
+            Math.Clamp(
+                Math.Max(metrics.InitialClientSize.Height, preferredContentSize.Height),
+                metrics.MinimumClientSize.Height,
+                metrics.MaximumClientSize.Height));
+    }
+
     internal static int Scale(int logicalPixels, int dpi)
     {
         return Math.Max(1, (int)Math.Round(logicalPixels * dpi / (double)BaseDpi));

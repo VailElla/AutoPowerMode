@@ -2,7 +2,7 @@
 
 # AutoPowerMode
 
-Current version: v1.3.0
+Current version: v1.3.1
 
 AutoPowerMode is a Windows-only system tray application that switches Windows power plans automatically according to whether the current user is actively using the computer.
 
@@ -21,13 +21,13 @@ The application starts directly in the system tray. After the configured idle th
 
 - Runs in the system tray without opening a main window at startup.
 - Uses Windows `GetLastInputInfo` to detect keyboard and mouse idle time.
-- Uses a 1,200-second idle threshold by default. It checks every 30 seconds while active or not yet classified, then every second after entering the idle plan so returning input can restore the active plan quickly.
+- Uses a 1,200-second idle threshold by default. Active and idle-plan checks are independently configurable from 1–60 seconds, defaulting to 30 seconds while active or not yet classified and 1 second after entering the idle plan so returning input can restore the active plan quickly.
 - Provides two independent, opt-in idle protections, both disabled by default: skip the idle rule while another program declares `ES_SYSTEM_REQUIRED`, `ES_DISPLAY_REQUIRED`, or `ES_AWAYMODE_REQUIRED`, and skip it while the foreground window is fullscreen.
 - Calls `powercfg /setactive` only when the target state changes, then verifies the active plan GUID before reporting success.
 - Provides concise notifications for startup synchronization, successful switches, failed switches, and external power-plan changes.
 - Requires two consecutive idle checks before switching to the idle plan, while user activity resumes the active plan immediately.
 - Supports pause/resume, manual plan switching, external override protection, diagnostics, startup registration, and single-instance activation.
-- Uses Per-Monitor V2 DPI layout from 100% through 250%, including dynamic relayout across displays.
+- Uses Per-Monitor V2 DPI layout from 100% through 250%, including dynamic relayout across displays, content-aware initial sizing, a scrollable settings area, and an always-visible bottom action bar.
 - Stores configuration and rotating logs locally under the current user's AppData directory.
 
 ## Privacy
@@ -61,4 +61,4 @@ dotnet build AutoPowerMode.sln --configuration Release
 dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj
 ```
 
-The tests cover configuration migration, idle protections, dual-rate monitoring, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
+The tests cover configuration migration, independently configurable dual-rate monitoring, idle protections, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
