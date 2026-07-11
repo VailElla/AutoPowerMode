@@ -14,6 +14,7 @@ internal static class DpiLayoutPolicy
     internal const int InitialClientHeight = 270;
     internal const int MinimumClientWidth = 400;
     internal const int MinimumClientHeight = 240;
+    internal const int CompactSettingsLayoutWidth = 440;
     internal const int WorkingAreaMargin = 12;
 
     public static DpiLayoutMetrics Calculate(int dpi, Size workingArea, Size nonClientSize)
@@ -49,6 +50,17 @@ internal static class DpiLayoutPolicy
                 Math.Max(metrics.InitialClientSize.Height, preferredContentSize.Height),
                 metrics.MinimumClientSize.Height,
                 metrics.MaximumClientSize.Height));
+    }
+
+    public static bool ShouldUseCompactSettingsLayout(int dpi, int availableWidth)
+    {
+        var effectiveDpi = Math.Max(BaseDpi, dpi);
+        return availableWidth < Scale(CompactSettingsLayoutWidth, effectiveDpi);
+    }
+
+    public static int ReserveVerticalScrollBar(int viewportWidth, int scrollBarWidth)
+    {
+        return Math.Max(1, viewportWidth - Math.Max(0, scrollBarWidth));
     }
 
     internal static int Scale(int logicalPixels, int dpi)

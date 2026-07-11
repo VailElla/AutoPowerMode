@@ -2,7 +2,7 @@
 
 # AutoPowerMode
 
-Current version: v1.3.1
+Current version: v1.3.2
 
 AutoPowerMode is a Windows-only system tray application that switches Windows power plans automatically according to whether the current user is actively using the computer.
 
@@ -27,7 +27,7 @@ The application starts directly in the system tray. After the configured idle th
 - Provides concise notifications for startup synchronization, successful switches, failed switches, and external power-plan changes.
 - Requires two consecutive idle checks before switching to the idle plan, while user activity resumes the active plan immediately.
 - Supports pause/resume, manual plan switching, external override protection, diagnostics, startup registration, and single-instance activation.
-- Uses Per-Monitor V2 DPI layout from 100% through 250%, including dynamic relayout across displays, content-aware initial sizing, a scrollable settings area, and an always-visible bottom action bar.
+- Uses Per-Monitor V2 DPI layout from 100% through 250%, including dynamic relayout across displays, content-aware initial sizing, a stacked narrow-window layout with vertical-only scrolling, and an always-visible bottom action bar.
 - Stores configuration and rotating logs locally under the current user's AppData directory.
 
 ## Privacy

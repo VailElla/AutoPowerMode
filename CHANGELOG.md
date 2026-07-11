@@ -1,5 +1,13 @@
 # AutoPowerMode Changelog
 
+## [v1.3.2] - 2026-07-12
+
+- 修复设置窗口缩小后仍出现横向滚动和左侧内容被裁切的问题：窄窗口自动切换为上下排列，长状态和选项文字可换行，并为纵向滚动条预留宽度；底部操作栏继续固定显示。
+- 增加窄窗口响应式布局与纵向滚动条宽度预留测试；当前共 46 项逻辑测试。
+
+- Fixed horizontal scrolling and left-side clipping after the Settings window was narrowed. Narrow windows now switch to a stacked layout, long status and option text can wrap, and the content reserves space for the vertical scrollbar while the bottom action bar remains fixed.
+- Added coverage for the compact-layout breakpoint and vertical-scrollbar width reservation; the suite now contains 46 logic tests.
+
 ## [v1.3.1] - 2026-07-12
 
 - 修复设置窗口在默认尺寸或部分 DPI/屏幕工作区下显示不完整的问题：设置内容与底部按钮栏分离，初始窗口按实际内容展开；空间不足时只滚动设置区，保存、取消与 GitHub 按钮保持在固定底栏。

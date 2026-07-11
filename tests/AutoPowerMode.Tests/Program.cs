@@ -36,6 +36,8 @@ var tests = new (string Name, Action Run)[]
     ("DpiLayoutPolicy scales from one hundred to two hundred fifty percent", DpiLayoutPolicyTests.ScalesAcrossSupportedDpiRange),
     ("DpiLayoutPolicy clamps to the monitor working area", DpiLayoutPolicyTests.ClampsToWorkingArea),
     ("DpiLayoutPolicy fits initial size to preferred content", DpiLayoutPolicyTests.FitsInitialSizeToPreferredContent),
+    ("DpiLayoutPolicy switches to compact settings layout at narrow widths", DpiLayoutPolicyTests.UsesCompactSettingsLayoutAtNarrowWidths),
+    ("DpiLayoutPolicy reserves vertical scrollbar width", DpiLayoutPolicyTests.ReservesVerticalScrollBarWidth),
     ("PowerPlanNotificationPolicy classifies startup synchronization", PowerPlanNotificationPolicyTests.ClassifiesStartupSynchronization),
     ("PowerPlanNotificationPolicy detects external configured-plan changes", PowerPlanNotificationPolicyTests.DetectsExternalConfiguredPlanChanges),
     ("PowerPlanNotificationPolicy does not misclassify manual no-op", PowerPlanNotificationPolicyTests.DoesNotMisclassifyManualNoOp),
@@ -582,6 +584,25 @@ internal static class DpiLayoutPolicyTests
         Assert.Equal(
             metrics.MaximumClientSize,
             DpiLayoutPolicy.FitInitialClientSize(metrics, new Size(1200, 900)));
+    }
+
+    public static void UsesCompactSettingsLayoutAtNarrowWidths()
+    {
+        var supportedDpis = new[] { 96, 120, 144, 168, 192, 216, 240 };
+
+        foreach (var dpi in supportedDpis)
+        {
+            var breakpoint = DpiLayoutPolicy.Scale(DpiLayoutPolicy.CompactSettingsLayoutWidth, dpi);
+            Assert.True(DpiLayoutPolicy.ShouldUseCompactSettingsLayout(dpi, breakpoint - 1));
+            Assert.False(DpiLayoutPolicy.ShouldUseCompactSettingsLayout(dpi, breakpoint));
+        }
+    }
+
+    public static void ReservesVerticalScrollBarWidth()
+    {
+        Assert.Equal(574, DpiLayoutPolicy.ReserveVerticalScrollBar(600, 26));
+        Assert.Equal(600, DpiLayoutPolicy.ReserveVerticalScrollBar(600, 0));
+        Assert.Equal(1, DpiLayoutPolicy.ReserveVerticalScrollBar(12, 26));
     }
 }
 
