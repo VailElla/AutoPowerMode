@@ -1,5 +1,17 @@
 # AutoPowerMode Changelog
 
+## [v1.3.1] - 2026-07-12
+
+- 修复设置窗口在默认尺寸或部分 DPI/屏幕工作区下显示不完整的问题：设置内容与底部按钮栏分离，初始窗口按实际内容展开；空间不足时只滚动设置区，保存、取消与 GitHub 按钮保持在固定底栏。
+- 将双频检测改为可独立设置：新增“活跃检测频率”和“空闲时检测频率”秒数输入框，范围均为 1–60 秒，默认值分别为 30 秒和 1 秒。
+- 设置值会即时用于检测循环，并同步显示在托盘与诊断信息中；旧版 `checkIntervalSeconds` / `checkIntervalMinutes` 会迁移为活跃检测频率，保存后统一使用新字段。
+- 补充双频默认值、保存、旧配置迁移、运行时选择、范围限制与内容自适应窗口尺寸测试；共 44 项逻辑测试通过。
+
+- Fixed incomplete Settings rendering at the default size and under constrained DPI/working-area combinations. Settings content now has its own scroll area, the initial window expands to its preferred content size, and Save, Cancel, and GitHub remain in a fixed bottom bar.
+- Made both monitoring rates independently configurable from 1–60 seconds: Active check interval defaults to 30 seconds, while Idle check interval defaults to 1 second.
+- The monitoring loop, tray status, diagnostics, and persisted configuration now use the selected values. Legacy `checkIntervalSeconds` / `checkIntervalMinutes` values migrate to the active interval and are rewritten with the new fields on save.
+- Added coverage for defaults, persistence, legacy migration, runtime interval selection, bounds, and preferred-content window sizing; all 44 logic tests pass.
+
 ## [v1.3.0] - 2026-07-11
 
 - 新增两个默认关闭、可独立勾选的空闲误触保护：识别其他程序声明的 `ES_SYSTEM_REQUIRED`、`ES_DISPLAY_REQUIRED`、`ES_AWAYMODE_REQUIRED`，以及当前前台窗口是否全屏；保护条件成立时不应用空闲规则。

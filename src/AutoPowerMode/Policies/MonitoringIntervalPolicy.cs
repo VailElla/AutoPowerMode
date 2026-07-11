@@ -2,14 +2,19 @@ namespace AutoPowerMode;
 
 internal static class MonitoringIntervalPolicy
 {
-    public static readonly TimeSpan ActiveInterval = TimeSpan.FromSeconds(30);
-
-    public static readonly TimeSpan IdleInterval = TimeSpan.FromSeconds(1);
-
-    public static TimeSpan GetInterval(UserActivityState activityState)
+    public static TimeSpan GetInterval(
+        UserActivityState activityState,
+        int activeCheckIntervalSeconds,
+        int idleCheckIntervalSeconds)
     {
-        return activityState == UserActivityState.Idle
-            ? IdleInterval
-            : ActiveInterval;
+        var intervalSeconds = activityState == UserActivityState.Idle
+            ? idleCheckIntervalSeconds
+            : activeCheckIntervalSeconds;
+
+        return TimeSpan.FromSeconds(
+            Math.Clamp(
+                intervalSeconds,
+                AppConfig.MinCheckIntervalSeconds,
+                AppConfig.MaxCheckIntervalSeconds));
     }
 }

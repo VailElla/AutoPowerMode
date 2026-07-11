@@ -7,8 +7,16 @@ public sealed class AppConfig
     public const int MinIdleThresholdSeconds = 10;
     public const int MaxIdleThresholdSeconds = 14400;
     public const int DefaultIdleThresholdSeconds = 1200;
+    public const int MinCheckIntervalSeconds = 1;
+    public const int MaxCheckIntervalSeconds = 60;
+    public const int DefaultActiveCheckIntervalSeconds = 30;
+    public const int DefaultIdleCheckIntervalSeconds = 1;
 
     public int IdleThresholdSeconds { get; set; } = DefaultIdleThresholdSeconds;
+
+    public int ActiveCheckIntervalSeconds { get; set; } = DefaultActiveCheckIntervalSeconds;
+
+    public int IdleCheckIntervalSeconds { get; set; } = DefaultIdleCheckIntervalSeconds;
 
     [JsonIgnore]
     public int? LegacyIdleThresholdMinutes { get; set; }
@@ -43,6 +51,8 @@ public sealed class AppConfig
         return new AppConfig
         {
             IdleThresholdSeconds = IdleThresholdSeconds,
+            ActiveCheckIntervalSeconds = ActiveCheckIntervalSeconds,
+            IdleCheckIntervalSeconds = IdleCheckIntervalSeconds,
             IdlePowerPlanGuid = IdlePowerPlanGuid,
             ActivePowerPlanGuid = ActivePowerPlanGuid,
             AutoStart = AutoStart,
@@ -66,6 +76,26 @@ public sealed class AppConfig
             IdleThresholdSeconds,
             MinIdleThresholdSeconds,
             MaxIdleThresholdSeconds);
+
+        if (ActiveCheckIntervalSeconds <= 0)
+        {
+            ActiveCheckIntervalSeconds = DefaultActiveCheckIntervalSeconds;
+        }
+
+        ActiveCheckIntervalSeconds = Math.Clamp(
+            ActiveCheckIntervalSeconds,
+            MinCheckIntervalSeconds,
+            MaxCheckIntervalSeconds);
+
+        if (IdleCheckIntervalSeconds <= 0)
+        {
+            IdleCheckIntervalSeconds = DefaultIdleCheckIntervalSeconds;
+        }
+
+        IdleCheckIntervalSeconds = Math.Clamp(
+            IdleCheckIntervalSeconds,
+            MinCheckIntervalSeconds,
+            MaxCheckIntervalSeconds);
 
         IdlePowerPlanGuid = IdlePowerPlanGuid.Trim();
         ActivePowerPlanGuid = ActivePowerPlanGuid.Trim();
