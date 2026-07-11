@@ -34,6 +34,10 @@ jobs:
         shell: pwsh
         run: dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj --configuration Release
 
+      - name: Run Windows Settings UI smoke test
+        shell: pwsh
+        run: dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi.Tests.csproj --configuration Release
+
       - name: Publish framework-dependent Windows app
         shell: pwsh
         run: >-

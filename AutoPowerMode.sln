@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{885E9D21
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoPowerMode.Tests", "tests\AutoPowerMode.Tests\AutoPowerMode.Tests.csproj", "{25EA1EF4-9A28-41A0-867E-78E71FCBA47B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AutoPowerMode.WindowsUi.Tests", "tests\AutoPowerMode.WindowsUi.Tests\AutoPowerMode.WindowsUi.Tests.csproj", "{1AD8DC52-50DF-45C3-88D2-CE8047C396DD}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -28,9 +30,14 @@ Global
 		{25EA1EF4-9A28-41A0-867E-78E71FCBA47B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{25EA1EF4-9A28-41A0-867E-78E71FCBA47B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{25EA1EF4-9A28-41A0-867E-78E71FCBA47B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1AD8DC52-50DF-45C3-88D2-CE8047C396DD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1AD8DC52-50DF-45C3-88D2-CE8047C396DD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1AD8DC52-50DF-45C3-88D2-CE8047C396DD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1AD8DC52-50DF-45C3-88D2-CE8047C396DD}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{2063FF39-BF7A-4775-B8B2-4176944BFABC} = {BBAC319F-8D99-4F35-A6E2-163EAF32C29C}
 		{25EA1EF4-9A28-41A0-867E-78E71FCBA47B} = {885E9D21-A0F5-4333-A557-CC623A1922A0}
+		{1AD8DC52-50DF-45C3-88D2-CE8047C396DD} = {885E9D21-A0F5-4333-A557-CC623A1922A0}
 	EndGlobalSection
 EndGlobal

@@ -84,7 +84,7 @@ public sealed class SettingsForm : Form
         root.AutoSizeMode = AutoSizeMode.GrowAndShrink;
         root.Padding = new Padding(12, 12, 12, 6);
         root.Margin = Padding.Empty;
-        root.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
+        root.GrowStyle = TableLayoutPanelGrowStyle.AddRows;
 
         ConfigureTextLabel(_automationStatusLabel, LocalizationService.Text("AutomationStatus"));
         ConfigureTextLabel(_idleThresholdLabel, LocalizationService.Text("IdleSwitchDelay"));
@@ -403,12 +403,24 @@ public sealed class SettingsForm : Form
     {
         var contentWidth = Math.Max(1, requestedWidth);
         var compact = DpiLayoutPolicy.ShouldUseCompactSettingsLayout(DeviceDpi, contentWidth);
-        ArrangeSettingsControls(compact);
-        ConfigureWrappingConstraints(contentWidth, compact);
 
-        _root.MinimumSize = new Size(contentWidth, 0);
-        _root.MaximumSize = new Size(contentWidth, 0);
-        _root.Width = contentWidth;
+        _root.SuspendLayout();
+        _idleProtectionOptions.SuspendLayout();
+        try
+        {
+            ArrangeSettingsControls(compact);
+            ConfigureWrappingConstraints(contentWidth, compact);
+
+            _root.MinimumSize = new Size(contentWidth, 0);
+            _root.MaximumSize = new Size(contentWidth, 0);
+            _root.Width = contentWidth;
+        }
+        finally
+        {
+            _idleProtectionOptions.ResumeLayout(performLayout: false);
+            _root.ResumeLayout(performLayout: false);
+        }
+
         _root.PerformLayout();
 
         var preferredSize = _root.GetPreferredSize(new Size(contentWidth, 0));

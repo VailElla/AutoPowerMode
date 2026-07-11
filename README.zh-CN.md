@@ -2,7 +2,7 @@
 
 # AutoPowerMode
 
-当前版本：v1.3.2
+当前版本：v1.3.3
 
 AutoPowerMode 是一个 Windows-only 桌面托盘程序，用于根据当前用户是否正在使用电脑，自动切换 Windows 电源计划。
 
@@ -50,6 +50,7 @@ src/AutoPowerMode/              应用源码
   Services/                     Windows 和本地系统服务
   UI/                           托盘、设置和诊断界面
 tests/AutoPowerMode.Tests/      纯逻辑自动测试
+tests/AutoPowerMode.WindowsUi.Tests/ Windows 专用设置窗口冒烟测试
 docs/reviews/                   历史版本审查记录
 archive/                        被 Git 忽略的本地构建历史
 ```
@@ -59,6 +60,8 @@ archive/                        被 Git 忽略的本地构建历史
 ```bash
 dotnet build AutoPowerMode.sln --configuration Release
 dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj
+# 仅限 Windows：
+dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi.Tests.csproj
 ```
 
-测试覆盖配置迁移、可独立配置的双频检测策略、空闲误触保护、语言选择与持久化、电源计划解析、切换策略、通知、DPI 布局、日志轮转与路径脱敏、开机自启和外部覆盖保护。
+逻辑测试覆盖配置迁移、可独立配置的双频检测策略、空闲误触保护、语言选择与持久化、电源计划解析、切换策略、通知、DPI 布局、日志轮转与路径脱敏、开机自启和外部覆盖保护。Windows 专用冒烟测试会实际打开中英文设置窗口并验证宽窄布局切换。

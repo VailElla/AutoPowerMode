@@ -1,0 +1,36 @@
+name: Windows CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Verify formatting
+        run: dotnet format AutoPowerMode.sln --verify-no-changes
+
+      - name: Run logic tests
+        run: dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj --configuration Release
+
+      - name: Run Windows Settings UI smoke test
+        run: dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi.Tests.csproj --configuration Release
