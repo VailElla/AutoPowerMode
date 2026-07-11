@@ -1,10 +1,20 @@
 using AutoPowerMode;
+using System.Drawing;
 
 var tests = new (string Name, Action Run)[]
 {
     ("ConfigService migrates legacy minutes to seconds", ConfigServiceTests.MigratesLegacyMinutesToSeconds),
     ("ConfigService keeps current second fields over legacy fields", ConfigServiceTests.KeepsSecondFieldsOverLegacyFields),
     ("ConfigService defaults AutoStart to false", ConfigServiceTests.DefaultsAutoStartToFalse),
+    ("ConfigService defaults notifications to enabled", ConfigServiceTests.DefaultsNotificationsToEnabled),
+    ("ConfigService preserves disabled notifications", ConfigServiceTests.PreservesDisabledNotifications),
+    ("ConfigService defaults language to system", ConfigServiceTests.DefaultsLanguageToSystem),
+    ("ConfigService preserves manual language", ConfigServiceTests.PreservesManualLanguage),
+    ("ConfigService accepts check intervals from one to sixty seconds", ConfigServiceTests.AcceptsOneToSixtySecondCheckIntervals),
+    ("Localization uses Chinese for Chinese system cultures", LocalizationTests.UsesChineseForChineseSystemCultures),
+    ("Localization uses English for non-Chinese system cultures", LocalizationTests.UsesEnglishForNonChineseSystemCultures),
+    ("Localization manual selection overrides system culture", LocalizationTests.ManualSelectionOverridesSystemCulture),
+    ("Localization resources contain matching keys", LocalizationTests.ResourcesContainMatchingKeys),
     ("PowerPlanManager parses English powercfg output", PowerPlanManagerTests.ParsesEnglishOutput),
     ("PowerPlanManager parses Simplified Chinese powercfg output", PowerPlanManagerTests.ParsesSimplifiedChineseOutput),
     ("PowerPlanManager parses Traditional Chinese powercfg output", PowerPlanManagerTests.ParsesTraditionalChineseOutput),
@@ -14,6 +24,11 @@ var tests = new (string Name, Action Run)[]
     ("PowerPlanManager matches GUIDs case-insensitively", PowerPlanManagerTests.MatchesGuidsCaseInsensitively),
     ("PowerModeTransitionPolicy requires consecutive idle confirmations", PowerModeTransitionPolicyTests.RequiresConsecutiveIdleConfirmations),
     ("PowerModeTransitionPolicy resumes active immediately", PowerModeTransitionPolicyTests.ResumesActiveImmediately),
+    ("DpiLayoutPolicy scales from one hundred to two hundred fifty percent", DpiLayoutPolicyTests.ScalesAcrossSupportedDpiRange),
+    ("DpiLayoutPolicy clamps to the monitor working area", DpiLayoutPolicyTests.ClampsToWorkingArea),
+    ("PowerPlanNotificationPolicy classifies startup synchronization", PowerPlanNotificationPolicyTests.ClassifiesStartupSynchronization),
+    ("PowerPlanNotificationPolicy detects external configured-plan changes", PowerPlanNotificationPolicyTests.DetectsExternalConfiguredPlanChanges),
+    ("PowerPlanNotificationPolicy does not misclassify manual no-op", PowerPlanNotificationPolicyTests.DoesNotMisclassifyManualNoOp),
     ("ConfigService cleans stale temp files only", ConfigServiceTests.CleansStaleTempFilesOnly),
     ("Logger rotates app.log after one megabyte", LoggerTests.RotatesAfterOneMegabyte),
     ("Logger keeps at most three archived logs", LoggerTests.KeepsAtMostThreeArchives),
@@ -57,12 +72,12 @@ internal static class ConfigServiceTests
             """
             {
               "idleThresholdMinutes": 15,
-              "checkIntervalMinutes": 2
+              "checkIntervalMinutes": 1
             }
             """);
 
         Assert.Equal(900, config.IdleThresholdSeconds);
-        Assert.Equal(120, config.CheckIntervalSeconds);
+        Assert.Equal(60, config.CheckIntervalSeconds);
     }
 
     public static void KeepsSecondFieldsOverLegacyFields()
@@ -88,6 +103,57 @@ internal static class ConfigServiceTests
         Assert.False(config.AutoStart);
     }
 
+    public static void DefaultsNotificationsToEnabled()
+    {
+        var config = ConfigService.Deserialize("{}");
+
+        Assert.True(config.NotificationsEnabled);
+    }
+
+    public static void PreservesDisabledNotifications()
+    {
+        var config = ConfigService.Deserialize(
+            """
+            {
+              "notificationsEnabled": false
+            }
+            """);
+
+        Assert.False(config.NotificationsEnabled);
+        Assert.Contains("\"notificationsEnabled\": false", ConfigService.Serialize(config));
+        Assert.False(config.Clone().NotificationsEnabled);
+    }
+
+    public static void DefaultsLanguageToSystem()
+    {
+        var config = ConfigService.Deserialize("{}");
+
+        Assert.Equal(AppLanguagePreference.System, config.Language);
+    }
+
+    public static void PreservesManualLanguage()
+    {
+        var config = ConfigService.Deserialize("{ \"language\": \"en\" }");
+
+        Assert.Equal(AppLanguagePreference.English, config.Language);
+        Assert.Contains("\"language\": \"en\"", ConfigService.Serialize(config));
+        Assert.Equal(AppLanguagePreference.English, config.Clone().Language);
+
+        var invalid = ConfigService.Deserialize("{ \"language\": \"fr\" }");
+        Assert.Equal(AppLanguagePreference.System, invalid.Language);
+    }
+
+    public static void AcceptsOneToSixtySecondCheckIntervals()
+    {
+        var oneSecond = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 1 }");
+        var sixtySeconds = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 60 }");
+        var aboveMaximum = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 61 }");
+
+        Assert.Equal(1, oneSecond.CheckIntervalSeconds);
+        Assert.Equal(60, sixtySeconds.CheckIntervalSeconds);
+        Assert.Equal(60, aboveMaximum.CheckIntervalSeconds);
+    }
+
     public static void CleansStaleTempFilesOnly()
     {
         using var tempDirectory = TemporaryDirectory.Create();
@@ -108,6 +174,44 @@ internal static class ConfigServiceTests
         Assert.False(File.Exists(staleTempPath));
         Assert.True(File.Exists(freshTempPath));
         Assert.True(File.Exists(unrelatedPath));
+    }
+}
+
+internal static class LocalizationTests
+{
+    public static void UsesChineseForChineseSystemCultures()
+    {
+        Assert.Equal(
+            AppLanguage.SimplifiedChinese,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.System, new System.Globalization.CultureInfo("zh-CN")));
+        Assert.Equal(
+            AppLanguage.SimplifiedChinese,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.System, new System.Globalization.CultureInfo("zh-TW")));
+    }
+
+    public static void UsesEnglishForNonChineseSystemCultures()
+    {
+        Assert.Equal(
+            AppLanguage.English,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.System, new System.Globalization.CultureInfo("en-US")));
+        Assert.Equal(
+            AppLanguage.English,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.System, new System.Globalization.CultureInfo("ja-JP")));
+    }
+
+    public static void ManualSelectionOverridesSystemCulture()
+    {
+        Assert.Equal(
+            AppLanguage.English,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.English, new System.Globalization.CultureInfo("zh-CN")));
+        Assert.Equal(
+            AppLanguage.SimplifiedChinese,
+            LocalizationService.ResolveLanguage(AppLanguagePreference.SimplifiedChinese, new System.Globalization.CultureInfo("en-US")));
+    }
+
+    public static void ResourcesContainMatchingKeys()
+    {
+        Assert.True(LocalizationService.ResourceKeysMatch);
     }
 }
 
@@ -261,6 +365,74 @@ internal static class PowerModeTransitionPolicyTests
             TimeSpan.FromSeconds(10));
 
         Assert.Equal(UserActivityState.Active, result);
+    }
+}
+
+internal static class DpiLayoutPolicyTests
+{
+    public static void ScalesAcrossSupportedDpiRange()
+    {
+        var supportedDpis = new[] { 96, 120, 144, 168, 192, 216, 240 };
+
+        foreach (var dpi in supportedDpis)
+        {
+            var metrics = DpiLayoutPolicy.Calculate(
+                dpi,
+                new Size(3840, 2160),
+                Size.Empty);
+
+            Assert.Equal(DpiLayoutPolicy.Scale(DpiLayoutPolicy.InitialClientWidth, dpi), metrics.InitialClientSize.Width);
+            Assert.Equal(DpiLayoutPolicy.Scale(DpiLayoutPolicy.InitialClientHeight, dpi), metrics.InitialClientSize.Height);
+            Assert.Equal(DpiLayoutPolicy.Scale(DpiLayoutPolicy.MinimumClientWidth, dpi), metrics.MinimumClientSize.Width);
+            Assert.Equal(DpiLayoutPolicy.Scale(DpiLayoutPolicy.MinimumClientHeight, dpi), metrics.MinimumClientSize.Height);
+            Assert.True(metrics.InitialClientSize.Width <= metrics.MaximumClientSize.Width);
+            Assert.True(metrics.InitialClientSize.Height <= metrics.MaximumClientSize.Height);
+        }
+    }
+
+    public static void ClampsToWorkingArea()
+    {
+        var metrics = DpiLayoutPolicy.Calculate(
+            dpi: 240,
+            workingArea: new Size(800, 600),
+            nonClientSize: new Size(40, 100));
+
+        Assert.Equal(new Size(700, 440), metrics.MaximumClientSize);
+        Assert.Equal(metrics.MaximumClientSize, metrics.MinimumClientSize);
+        Assert.Equal(metrics.MaximumClientSize, metrics.InitialClientSize);
+    }
+}
+
+internal static class PowerPlanNotificationPolicyTests
+{
+    public static void ClassifiesStartupSynchronization()
+    {
+        var disposition = PowerPlanNotificationPolicy.ClassifyAlreadyActivePlan(
+            UserActivityState.Unknown,
+            UserActivityState.Active,
+            manual: false);
+
+        Assert.Equal(AlreadyActivePlanDisposition.StartupSynchronized, disposition);
+    }
+
+    public static void DetectsExternalConfiguredPlanChanges()
+    {
+        var disposition = PowerPlanNotificationPolicy.ClassifyAlreadyActivePlan(
+            UserActivityState.Idle,
+            UserActivityState.Active,
+            manual: false);
+
+        Assert.Equal(AlreadyActivePlanDisposition.ExternalChangeDetected, disposition);
+    }
+
+    public static void DoesNotMisclassifyManualNoOp()
+    {
+        var disposition = PowerPlanNotificationPolicy.ClassifyAlreadyActivePlan(
+            UserActivityState.Idle,
+            UserActivityState.Active,
+            manual: true);
+
+        Assert.Equal(AlreadyActivePlanDisposition.NoChange, disposition);
     }
 }
 

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AutoPowerMode.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="../../src/AutoPowerMode/Configuration/AppConfig.cs" Link="Source/Configuration/AppConfig.cs" />
+    <Compile Include="../../src/AutoPowerMode/Configuration/ConfigService.cs" Link="Source/Configuration/ConfigService.cs" />
+    <Compile Include="../../src/AutoPowerMode/Localization/AppLanguagePreference.cs" Link="Source/Localization/AppLanguagePreference.cs" />
+    <Compile Include="../../src/AutoPowerMode/Localization/LocalizationService.cs" Link="Source/Localization/LocalizationService.cs" />
+    <Compile Include="../../src/AutoPowerMode/Models/ControlState.cs" Link="Source/Models/ControlState.cs" />
+    <Compile Include="../../src/AutoPowerMode/Models/PowerPlan.cs" Link="Source/Models/PowerPlan.cs" />
+    <Compile Include="../../src/AutoPowerMode/Models/UserActivityState.cs" Link="Source/Models/UserActivityState.cs" />
+    <Compile Include="../../src/AutoPowerMode/Policies/PowerModeTransitionPolicy.cs" Link="Source/Policies/PowerModeTransitionPolicy.cs" />
+    <Compile Include="../../src/AutoPowerMode/Policies/DpiLayoutPolicy.cs" Link="Source/Policies/DpiLayoutPolicy.cs" />
+    <Compile Include="../../src/AutoPowerMode/Policies/PowerPlanNotificationPolicy.cs" Link="Source/Policies/PowerPlanNotificationPolicy.cs" />
+    <Compile Include="../../src/AutoPowerMode/Policies/PowerPlanOverridePolicy.cs" Link="Source/Policies/PowerPlanOverridePolicy.cs" />
+    <Compile Include="../../src/AutoPowerMode/Services/Logger.cs" Link="Source/Services/Logger.cs" />
+    <Compile Include="../../src/AutoPowerMode/Services/PowerPlanManager.cs" Link="Source/Services/PowerPlanManager.cs" />
+    <Compile Include="../../src/AutoPowerMode/Services/StartupRegistrationValue.cs" Link="Source/Services/StartupRegistrationValue.cs" />
+  </ItemGroup>
+</Project>

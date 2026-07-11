@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -5,13 +6,17 @@ namespace AutoPowerMode;
 
 public sealed class SettingsForm : Form
 {
+    private const int InputMinimumWidth = 190;
+
     private readonly NumericUpDown _idleThresholdInput = new();
     private readonly NumericUpDown _checkIntervalInput = new();
     private readonly ComboBox _activePlanCombo = new();
     private readonly ComboBox _idlePlanCombo = new();
+    private readonly ComboBox _languageCombo = new();
     private readonly CheckBox _autoStartCheckBox = new();
+    private readonly CheckBox _notificationsEnabledCheckBox = new();
     private readonly Label _automationStatusValueLabel = new();
-    private readonly Label _checkIntervalWarningLabel = new();
+    private readonly TableLayoutPanel _root = new();
     private readonly ToolTip _powerPlanToolTip = new();
     private readonly AppConfig _originalConfig;
 
@@ -20,39 +25,52 @@ public sealed class SettingsForm : Form
         _originalConfig = config.Clone();
         SavedConfig = config.Clone();
 
-        Text = $"{AppInfo.DisplayName} 设置";
+        Text = LocalizationService.Format("SettingsTitle", AppInfo.DisplayName);
         StartPosition = FormStartPosition.CenterScreen;
+        AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        AutoScroll = true;
+        FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = true;
-        ClientSize = new Size(680, 350);
+        SizeGripStyle = SizeGripStyle.Show;
+        ClientSize = new Size(DpiLayoutPolicy.InitialClientWidth, DpiLayoutPolicy.InitialClientHeight);
 
         BuildLayout(powerPlans);
         _automationStatusValueLabel.Text = automationStatusText;
         LoadValues(config, powerPlans);
+
+        Load += (_, _) => ApplyDpiAwareLayout(applyInitialSize: true);
+        DpiChanged += (_, _) =>
+        {
+            if (!IsHandleCreated || IsDisposed)
+            {
+                return;
+            }
+
+            BeginInvoke(new Action(() => ApplyDpiAwareLayout(applyInitialSize: false)));
+        };
     }
 
     public AppConfig SavedConfig { get; private set; }
 
     private void BuildLayout(IReadOnlyList<PowerPlan> powerPlans)
     {
-        var root = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill,
-            Padding = new Padding(16),
-            ColumnCount = 3,
-            RowCount = 8
-        };
+        var root = _root;
+        root.Dock = DockStyle.Fill;
+        root.Padding = new Padding(12);
+        root.ColumnCount = 3;
+        root.RowCount = 9;
+        root.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
 
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 190));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 58));
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        for (var i = 0; i < 7; i++)
+        for (var i = 0; i < 8; i++)
         {
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
 
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -62,90 +80,176 @@ public sealed class SettingsForm : Form
         _idleThresholdInput.DecimalPlaces = 0;
         _idleThresholdInput.ThousandsSeparator = false;
         _idleThresholdInput.Dock = DockStyle.Fill;
+        _idleThresholdInput.MinimumSize = new Size(InputMinimumWidth, 0);
 
         _checkIntervalInput.Minimum = AppConfig.MinCheckIntervalSeconds;
         _checkIntervalInput.Maximum = AppConfig.MaxCheckIntervalSeconds;
         _checkIntervalInput.DecimalPlaces = 0;
         _checkIntervalInput.ThousandsSeparator = false;
         _checkIntervalInput.Dock = DockStyle.Fill;
-        _checkIntervalInput.ValueChanged += (_, _) => UpdateCheckIntervalWarning();
+        _checkIntervalInput.MinimumSize = new Size(InputMinimumWidth, 0);
 
-        _automationStatusValueLabel.AutoSize = true;
-        _automationStatusValueLabel.Anchor = AnchorStyles.Left;
+        _automationStatusValueLabel.AutoSize = false;
+        _automationStatusValueLabel.AutoEllipsis = true;
+        _automationStatusValueLabel.Dock = DockStyle.Fill;
         _automationStatusValueLabel.TextAlign = ContentAlignment.MiddleLeft;
-
-        _checkIntervalWarningLabel.AutoSize = true;
-        _checkIntervalWarningLabel.Anchor = AnchorStyles.Left;
-        _checkIntervalWarningLabel.TextAlign = ContentAlignment.MiddleLeft;
 
         ConfigureComboBox(_activePlanCombo, powerPlans);
         ConfigureComboBox(_idlePlanCombo, powerPlans);
         AttachPlanToolTip(_activePlanCombo);
         AttachPlanToolTip(_idlePlanCombo);
 
-        _autoStartCheckBox.Text = "启用当前用户开机自启";
+        _languageCombo.DropDownStyle = ComboBoxStyle.DropDownList;
+        _languageCombo.Dock = DockStyle.Fill;
+        _languageCombo.MinimumSize = new Size(InputMinimumWidth, 0);
+        _languageCombo.Items.AddRange(
+        [
+            new LanguageOption(AppLanguagePreference.System, LocalizationService.Text("LanguageSystem")),
+            new LanguageOption(AppLanguagePreference.English, LocalizationService.Text("LanguageEnglish")),
+            new LanguageOption(AppLanguagePreference.SimplifiedChinese, LocalizationService.Text("LanguageChinese"))
+        ]);
+
+        _autoStartCheckBox.Text = LocalizationService.Text("EnableAutoStart");
         _autoStartCheckBox.AutoSize = true;
         _autoStartCheckBox.Anchor = AnchorStyles.Left;
 
-        AddText(root, "自动切换状态", 0, 0);
+        _notificationsEnabledCheckBox.Text = LocalizationService.Text("EnableNotifications");
+        _notificationsEnabledCheckBox.AutoSize = true;
+        _notificationsEnabledCheckBox.Anchor = AnchorStyles.Left;
+
+        AddText(root, LocalizationService.Text("AutomationStatus"), 0, 0);
         root.Controls.Add(_automationStatusValueLabel, 1, 0);
         root.SetColumnSpan(_automationStatusValueLabel, 2);
 
-        AddText(root, "空闲多久后切换到节能模式", 0, 1);
+        AddText(root, LocalizationService.Text("IdleSwitchDelay"), 0, 1);
         root.Controls.Add(_idleThresholdInput, 1, 1);
-        AddText(root, "秒", 2, 1);
+        AddText(root, LocalizationService.Text("Seconds"), 2, 1);
 
-        AddText(root, "检测间隔", 0, 2);
+        AddText(root, LocalizationService.Text("CheckInterval"), 0, 2);
         root.Controls.Add(_checkIntervalInput, 1, 2);
-        AddText(root, "秒", 2, 2);
+        AddText(root, LocalizationService.Text("Seconds"), 2, 2);
 
-        root.Controls.Add(_checkIntervalWarningLabel, 1, 3);
-        root.SetColumnSpan(_checkIntervalWarningLabel, 2);
-
-        AddText(root, "活跃时电源计划", 0, 4);
-        root.Controls.Add(_activePlanCombo, 1, 4);
+        AddText(root, LocalizationService.Text("ActivePowerPlan"), 0, 3);
+        root.Controls.Add(_activePlanCombo, 1, 3);
         root.SetColumnSpan(_activePlanCombo, 2);
 
-        AddText(root, "空闲时电源计划", 0, 5);
-        root.Controls.Add(_idlePlanCombo, 1, 5);
+        AddText(root, LocalizationService.Text("IdlePowerPlan"), 0, 4);
+        root.Controls.Add(_idlePlanCombo, 1, 4);
         root.SetColumnSpan(_idlePlanCombo, 2);
 
-        AddText(root, "开机自启", 0, 6);
-        root.Controls.Add(_autoStartCheckBox, 1, 6);
+        AddText(root, LocalizationService.Text("Startup"), 0, 5);
+        root.Controls.Add(_autoStartCheckBox, 1, 5);
         root.SetColumnSpan(_autoStartCheckBox, 2);
+
+        AddText(root, LocalizationService.Text("SystemNotifications"), 0, 6);
+        root.Controls.Add(_notificationsEnabledCheckBox, 1, 6);
+        root.SetColumnSpan(_notificationsEnabledCheckBox, 2);
+
+        AddText(root, LocalizationService.Text("Language"), 0, 7);
+        root.Controls.Add(_languageCombo, 1, 7);
+        root.SetColumnSpan(_languageCombo, 2);
 
         var buttons = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.RightToLeft,
-            Dock = DockStyle.Fill
+            Dock = DockStyle.Fill,
+            WrapContents = false
+        };
+
+        var githubButton = new Button
+        {
+            Text = LocalizationService.Text("GitHubHomepage"),
+            AutoSize = true,
+            Anchor = AnchorStyles.Left
         };
 
         var saveButton = new Button
         {
-            Text = "保存",
+            Text = LocalizationService.Text("Save"),
             AutoSize = true,
             DialogResult = DialogResult.None
         };
 
         var cancelButton = new Button
         {
-            Text = "取消",
+            Text = LocalizationService.Text("Cancel"),
             AutoSize = true,
             DialogResult = DialogResult.Cancel
         };
 
         saveButton.Click += SaveButton_Click;
+        githubButton.Click += (_, _) => OpenRepository();
 
         buttons.Controls.Add(saveButton);
         buttons.Controls.Add(cancelButton);
 
-        root.Controls.Add(buttons, 0, 7);
-        root.SetColumnSpan(buttons, 3);
+        var buttonBar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            ColumnCount = 2,
+            RowCount = 1,
+            Margin = Padding.Empty
+        };
+        buttonBar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        buttonBar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        buttonBar.Controls.Add(githubButton, 0, 0);
+        buttonBar.Controls.Add(buttons, 1, 0);
+
+        root.Controls.Add(buttonBar, 0, 8);
+        root.SetColumnSpan(buttonBar, 3);
 
         AcceptButton = saveButton;
         CancelButton = cancelButton;
 
         Controls.Add(root);
+    }
+
+    private void ApplyDpiAwareLayout(bool applyInitialSize)
+    {
+        var nonClientSize = new Size(
+            Math.Max(0, Width - ClientSize.Width),
+            Math.Max(0, Height - ClientSize.Height));
+        var workingArea = Screen.FromControl(this).WorkingArea;
+        var metrics = DpiLayoutPolicy.Calculate(DeviceDpi, workingArea.Size, nonClientSize);
+
+        SuspendLayout();
+        try
+        {
+            _root.PerformLayout();
+            var preferredContentSize = _root.GetPreferredSize(metrics.MinimumClientSize);
+            AutoScrollMinSize = new Size(
+                Math.Max(metrics.MinimumClientSize.Width, preferredContentSize.Width),
+                Math.Max(metrics.MinimumClientSize.Height, preferredContentSize.Height));
+            MinimumSize = new Size(
+                metrics.MinimumClientSize.Width + nonClientSize.Width,
+                metrics.MinimumClientSize.Height + nonClientSize.Height);
+
+            if (applyInitialSize)
+            {
+                ClientSize = new Size(
+                    Math.Min(
+                        metrics.MaximumClientSize.Width,
+                        Math.Max(metrics.InitialClientSize.Width, preferredContentSize.Width)),
+                    Math.Min(
+                        metrics.MaximumClientSize.Height,
+                        Math.Max(metrics.InitialClientSize.Height, preferredContentSize.Height)));
+            }
+            else
+            {
+                var clampedClientSize = new Size(
+                    Math.Min(ClientSize.Width, metrics.MaximumClientSize.Width),
+                    Math.Min(ClientSize.Height, metrics.MaximumClientSize.Height));
+
+                if (clampedClientSize != ClientSize)
+                {
+                    ClientSize = clampedClientSize;
+                }
+            }
+        }
+        finally
+        {
+            ResumeLayout(performLayout: true);
+        }
     }
 
     private void LoadValues(AppConfig config, IReadOnlyList<PowerPlan> powerPlans)
@@ -165,27 +269,23 @@ public sealed class SettingsForm : Form
         UpdatePlanToolTip(_activePlanCombo);
         UpdatePlanToolTip(_idlePlanCombo);
         _autoStartCheckBox.Checked = config.AutoStart;
-        UpdateCheckIntervalWarning();
+        _notificationsEnabledCheckBox.Checked = config.NotificationsEnabled;
+        SelectLanguage(config.Language);
     }
 
-    private void UpdateCheckIntervalWarning()
+    private void SelectLanguage(string preference)
     {
-        var seconds = (int)_checkIntervalInput.Value;
-        if (seconds <= 30)
+        var normalized = AppLanguagePreference.Normalize(preference);
+        for (var index = 0; index < _languageCombo.Items.Count; index++)
         {
-            _checkIntervalWarningLabel.Text = "建议保持 5-30 秒，当前设置正常。";
-            _checkIntervalWarningLabel.ForeColor = SystemColors.GrayText;
+            if (_languageCombo.Items[index] is LanguageOption option && option.Preference == normalized)
+            {
+                _languageCombo.SelectedIndex = index;
+                return;
+            }
         }
-        else if (seconds <= 120)
-        {
-            _checkIntervalWarningLabel.Text = "检测间隔偏长，自动切换和恢复可能延迟。";
-            _checkIntervalWarningLabel.ForeColor = Color.DarkOrange;
-        }
-        else
-        {
-            _checkIntervalWarningLabel.Text = "检测间隔过长，可能显著延迟切换和恢复。";
-            _checkIntervalWarningLabel.ForeColor = Color.Firebrick;
-        }
+
+        _languageCombo.SelectedIndex = 0;
     }
 
     private static void ConfigureComboBox(ComboBox comboBox, IReadOnlyList<PowerPlan> powerPlans)
@@ -193,6 +293,7 @@ public sealed class SettingsForm : Form
         comboBox.DropDownStyle = ComboBoxStyle.DropDownList;
         comboBox.Dock = DockStyle.Fill;
         comboBox.IntegralHeight = false;
+        comboBox.MinimumSize = new Size(InputMinimumWidth, 0);
         comboBox.MaxDropDownItems = Math.Clamp(powerPlans.Count, 1, 12);
         comboBox.Items.Clear();
         comboBox.DropDown += (_, _) =>
@@ -341,6 +442,9 @@ public sealed class SettingsForm : Form
         SavedConfig.ActivePowerPlanGuid = activePlan?.Guid ?? string.Empty;
         SavedConfig.IdlePowerPlanGuid = idlePlan?.Guid ?? string.Empty;
         SavedConfig.AutoStart = _autoStartCheckBox.Checked;
+        SavedConfig.NotificationsEnabled = _notificationsEnabledCheckBox.Checked;
+        SavedConfig.Language = (_languageCombo.SelectedItem as LanguageOption)?.Preference
+                               ?? AppLanguagePreference.System;
         SavedConfig.PowerPlansConfiguredByUser = true;
         SavedConfig.Normalize();
 
@@ -354,7 +458,10 @@ public sealed class SettingsForm : Form
             _idleThresholdInput.Value > AppConfig.MaxIdleThresholdSeconds)
         {
             MessageBox.Show(
-                $"空闲时间必须在 {AppConfig.MinIdleThresholdSeconds} 到 {AppConfig.MaxIdleThresholdSeconds} 秒之间。",
+                LocalizationService.Format(
+                    "IdleRangeValidation",
+                    AppConfig.MinIdleThresholdSeconds,
+                    AppConfig.MaxIdleThresholdSeconds),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -365,7 +472,10 @@ public sealed class SettingsForm : Form
             _checkIntervalInput.Value > AppConfig.MaxCheckIntervalSeconds)
         {
             MessageBox.Show(
-                $"检测间隔必须在 {AppConfig.MinCheckIntervalSeconds} 到 {AppConfig.MaxCheckIntervalSeconds} 秒之间。",
+                LocalizationService.Format(
+                    "CheckRangeValidation",
+                    AppConfig.MinCheckIntervalSeconds,
+                    AppConfig.MaxCheckIntervalSeconds),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -375,7 +485,7 @@ public sealed class SettingsForm : Form
         if (_activePlanCombo.SelectedItem is not PowerPlan)
         {
             MessageBox.Show(
-                "请选择活跃时使用的电源计划。",
+                LocalizationService.Text("SelectActivePlan"),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -385,7 +495,7 @@ public sealed class SettingsForm : Form
         if (_idlePlanCombo.SelectedItem is not PowerPlan)
         {
             MessageBox.Show(
-                "请选择空闲时使用的电源计划。",
+                LocalizationService.Text("SelectIdlePlan"),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -393,6 +503,28 @@ public sealed class SettingsForm : Form
         }
 
         return true;
+    }
+
+    private void OpenRepository()
+    {
+        try
+        {
+            Process.Start(
+                new ProcessStartInfo
+                {
+                    FileName = AppInfo.RepositoryUrl,
+                    UseShellExecute = true
+                });
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("打开 GitHub 项目主页失败。", ex);
+            MessageBox.Show(
+                $"{LocalizationService.Text("OpenGitHubFailed")}{Environment.NewLine}{AppInfo.RepositoryUrl}",
+                AppInfo.DisplayName,
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 
     protected override void Dispose(bool disposing)
@@ -403,5 +535,10 @@ public sealed class SettingsForm : Form
         }
 
         base.Dispose(disposing);
+    }
+
+    private sealed record LanguageOption(string Preference, string DisplayName)
+    {
+        public override string ToString() => DisplayName;
     }
 }

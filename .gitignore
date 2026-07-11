@@ -5,7 +5,13 @@ bin/
 obj/
 artifacts/
 release/
+publish/
+dist/
 *.zip
+
+# Preserved local build history (not source-of-truth release assets)
+archive/legacy-builds/
+archive/releases/
 
 # IDE/editor files
 .vs/

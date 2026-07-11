@@ -1,5 +1,44 @@
 # AutoPowerMode Changelog
 
+## [v1.2.0] - 2026-07-11
+
+- 新增英文与简体中文界面；中文 Windows 系统文化默认使用简体中文，其他系统文化默认使用英文。
+- 设置页新增语言选择，可在跟随系统、English 和简体中文之间主动切换，选择结果仅保存在本地配置中。
+- 托盘菜单、设置、通知、诊断和错误提示全部接入同一套本地化文本。
+- GitHub 首页新增文档顶部语言入口：`English | 简体中文`，并提供完整双语 README。
+- 新增隐私说明和发布安全检查：无遥测、分析、后台上传或远程 API；GitHub 链接只在用户主动点击时由默认浏览器打开。
+- 增加系统语言识别、手动语言覆盖和配置持久化测试。
+
+- Added English and Simplified Chinese UI. Chinese Windows cultures default to Simplified Chinese; every other culture defaults to English.
+- Added an in-app language selector with system, English, and Simplified Chinese choices stored only in the local configuration.
+- Localized the tray menu, settings, notifications, diagnostics, and user-facing errors.
+- Added `English | 简体中文` navigation at the top of both GitHub README files.
+- Documented and verified the local-only privacy model: no telemetry, analytics, background uploads, or remote API client.
+
+## [v1.1.6] - 2026-07-11
+
+- 设置窗口改为 Per-Monitor V2 DPI 模式，在窗口移动到不同缩放比例的显示器时动态重排。
+- 移除 780 x 430 的较大固定最小尺寸，初始逻辑尺寸调整为约 460 x 270，最小逻辑尺寸约 400 x 240。
+- 标签列和单位列改为内容自动宽度，设置行改为内容自动高度，减少空白并支持更紧凑窗口。
+- 窗口尺寸会按当前 DPI 计算并受显示器工作区限制，内容超出时保留滚动兜底。
+- 增加 100%、125%、150%、175%、200%、225% 和 250% 的 DPI 尺寸策略测试。
+
+## [v1.1.5] - 2026-07-11
+
+- 修复 Windows 150% 缩放下设置页左侧标签和通知选项被截断的问题，扩大最小尺寸并允许用户调整窗口。
+- 缩短启动、切换成功、切换失败和外部改动通知，移除通知中的技术性确认描述。
+- 检测间隔可在 1-60 秒之间自由设置，移除“当前设置正常”和建议区间文案。
+- 设置页新增 `GitHub 项目主页` 按钮，使用系统默认浏览器打开项目链接。
+- 仓库整理为 `src/`、`tests/`、`docs/` 和 `archive/`；历史构建保留在 Git 忽略的归档目录，清理可再生成缓存和 macOS 元数据文件。
+
+## [v1.1.4] - 2026-07-11
+
+- 新增电源计划通知，区分程序启动同步、实际切换成功、切换失败以及外部改动，不再把“当前已是目标计划”误报为成功切换。
+- 每次执行 `powercfg /setactive` 后重新读取当前电源计划，只有实际 GUID 与目标 GUID 一致时才记为切换成功。
+- 切换失败时会显示故障通知并继续自动重试；同一目标的连续故障只通知一次，恢复后才重置。
+- 设置窗口新增通知开关，默认开启；旧版配置缺少该字段时会自动使用默认值。
+- 增加通知配置持久化和通知语义分类测试。
+
 ## [v1.1.3] - 2026-07-05
 
 - 新增外部手动切换保护：如果用户在 Windows 里手动切到非 AutoPowerMode 配置的电源计划，程序会进入外部覆盖状态，避免自动切换马上覆盖用户选择。

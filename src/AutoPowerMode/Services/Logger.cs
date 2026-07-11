@@ -41,7 +41,10 @@ public static class Logger
 
     public static string GetLogLocationMessage()
     {
-        return $"日志位置：{SanitizeMessage(LogFilePath)}{Environment.NewLine}便携目录日志：{SanitizeMessage(PortableLogFilePath)}";
+        return string.Join(
+            Environment.NewLine,
+            LocalizationService.Format("LogLocation", SanitizeMessage(LogFilePath)),
+            LocalizationService.Format("PortableLogLocation", SanitizeMessage(PortableLogFilePath)));
     }
 
     private static void Write(string level, string message)

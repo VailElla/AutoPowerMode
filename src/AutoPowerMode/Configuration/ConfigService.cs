@@ -41,7 +41,7 @@ public sealed class ConfigService
             var config = Deserialize(json);
 
             config.Normalize();
-            Logger.Info($"已加载配置：空闲阈值={config.IdleThresholdSeconds} 秒，检测间隔={config.CheckIntervalSeconds} 秒，活跃计划={config.ActivePowerPlanGuid}，空闲计划={config.IdlePowerPlanGuid}，用户配置计划={config.PowerPlansConfiguredByUser}，开机自启={config.AutoStart}，暂停={config.IsPaused}");
+            Logger.Info($"已加载配置：空闲阈值={config.IdleThresholdSeconds} 秒，检测间隔={config.CheckIntervalSeconds} 秒，活跃计划={config.ActivePowerPlanGuid}，空闲计划={config.IdlePowerPlanGuid}，用户配置计划={config.PowerPlansConfiguredByUser}，开机自启={config.AutoStart}，通知={config.NotificationsEnabled}，语言={config.Language}，暂停={config.IsPaused}");
             return config;
         }
         catch (Exception ex)
@@ -219,6 +219,17 @@ public sealed class ConfigService
                 config.AutoStart = autoStart.GetBoolean();
             }
 
+            if (root.TryGetProperty("notificationsEnabled", out var notificationsEnabled) &&
+                (notificationsEnabled.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            {
+                config.NotificationsEnabled = notificationsEnabled.GetBoolean();
+            }
+
+            if (root.TryGetProperty("language", out var language) && language.ValueKind == JsonValueKind.String)
+            {
+                config.Language = AppLanguagePreference.Normalize(language.GetString());
+            }
+
             if (root.TryGetProperty("isPaused", out var isPaused) && (isPaused.ValueKind is JsonValueKind.True or JsonValueKind.False))
             {
                 config.IsPaused = isPaused.GetBoolean();
@@ -240,6 +251,8 @@ public sealed class ConfigService
             writer.WriteString("idlePowerPlanGuid", value.IdlePowerPlanGuid);
             writer.WriteString("activePowerPlanGuid", value.ActivePowerPlanGuid);
             writer.WriteBoolean("autoStart", value.AutoStart);
+            writer.WriteBoolean("notificationsEnabled", value.NotificationsEnabled);
+            writer.WriteString("language", AppLanguagePreference.Normalize(value.Language));
             writer.WriteBoolean("isPaused", value.IsPaused);
             writer.WriteBoolean("powerPlansConfiguredByUser", value.PowerPlansConfiguredByUser);
             writer.WriteEndObject();

@@ -1,41 +1,63 @@
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 # AutoPowerMode
 
-当前版本：v1.1.3
+Current version: v1.2.0
 
-AutoPowerMode 是一个 Windows-only 桌面托盘程序，用于根据当前用户是否正在使用电脑，自动切换 Windows 电源计划。
+AutoPowerMode is a Windows-only system tray application that switches Windows power plans automatically according to whether the current user is actively using the computer.
 
-GitHub Release 默认提供 Windows x64 framework-dependent 发布包，不内置 .NET 运行时，体积更小。运行前需要 Windows 已安装 .NET 8 Desktop Runtime；如果没有安装，启动时会由 .NET 提示缺少运行时。因为软件目前没有购买代码签名证书，Windows 可能提示“未知发布者”；如果你确认是从本仓库下载，可以在提示中选择“更多信息”后继续运行。
+GitHub Releases provide a small Windows x64 framework-dependent package. Windows must have the .NET 8 Desktop Runtime installed. Because the application is not code-signed, Windows may show an “Unknown publisher” warning; continue only when you downloaded the package from this repository.
 
-程序启动后不会显示主窗口，而是常驻系统托盘。用户空闲达到阈值后切换到节能计划，重新使用鼠标或键盘后切换到高性能计划。
+The application starts directly in the system tray. After the configured idle threshold it switches to the idle power plan, and it switches back to the active power plan when keyboard or mouse input resumes.
 
-## 功能列表
+## Language
 
-- 启动后直接进入系统托盘
-- 使用 `GetLastInputInfo` 检测鼠标和键盘空闲时间
-- 默认空闲 1200 秒后切换到节能计划
-- 默认每 10 秒检测一次
-- 状态变化时才调用 `powercfg /setactive`
-- 活跃切换到空闲前需要连续 2 次检测确认，减少阈值边界误判
-- 空闲切回活跃不受冷却限制，检测到用户输入后立即恢复活跃计划
-- 支持 10 秒内部切换冷却时间，用于限制自动切到空闲计划的调用频率
-- 支持暂停和恢复自动切换
-- 支持托盘菜单手动切换到高性能或节能计划
-- 支持显式外部电源计划覆盖状态，并可一键恢复 AutoPowerMode 自动控制
-- 支持只读诊断窗口，可复制诊断信息、打开日志目录、重新检测电源计划
-- 支持设置空闲阈值、检测间隔、活跃计划、空闲计划
-- 设置页显示自动切换当前运行状态，并提示检测间隔过长会造成延迟
-- 支持当前用户级别开机自启，默认关闭，由用户手动开启
-- 支持单实例运行，再次启动 exe 会打开已有实例的设置窗口
-- 设置会长期保存到当前用户 AppData，关闭后再次启动继续使用上次设置
-- 配置损坏时自动备份并恢复默认配置
-- 写入本地日志，方便排查问题
-- 单个 `app.log` 超过 1MB 前自动轮转，最多保留 `app.log`、`app.1.log`、`app.2.log`、`app.3.log`
-- 日志会基础脱敏 `%AppData%\AutoPowerMode` 和程序目录路径，减少本机用户名路径暴露
+- On first launch, every Chinese Windows culture (`zh-*`) uses Simplified Chinese.
+- Every non-Chinese Windows culture uses English.
+- Open **Settings → Language** to choose **Follow system language**, **English**, or **Simplified Chinese** at any time.
+- The selected preference is stored locally in the current user's configuration file.
 
-## 自动测试
+## Features
 
-关键逻辑测试位于 `AutoPowerMode.Tests`，覆盖配置迁移、`powercfg` 输出解析、标准 GUID 匹配、状态边界、日志轮转、自启路径判断和外部手动切换保护。
+- Runs in the system tray without opening a main window at startup.
+- Uses Windows `GetLastInputInfo` to detect keyboard and mouse idle time.
+- Defaults to a 1,200-second idle threshold and a 10-second check interval; the interval can be set from 1 to 60 seconds.
+- Calls `powercfg /setactive` only when the target state changes, then verifies the active plan GUID before reporting success.
+- Provides concise notifications for startup synchronization, successful switches, failed switches, and external power-plan changes.
+- Requires two consecutive idle checks before switching to the idle plan, while user activity resumes the active plan immediately.
+- Supports pause/resume, manual plan switching, external override protection, diagnostics, startup registration, and single-instance activation.
+- Uses Per-Monitor V2 DPI layout from 100% through 250%, including dynamic relayout across displays.
+- Stores configuration and rotating logs locally under the current user's AppData directory.
+
+## Privacy
+
+AutoPowerMode contains no telemetry, analytics, advertising SDK, remote API client, update beacon, or background upload code. It does not send configuration, power-plan details, diagnostics, logs, user names, file paths, or device information to this project or any third party.
+
+All normal processing is local: Windows idle detection, `powercfg`, current-user startup registration, configuration, diagnostics, and logs. The only feature that can open a network destination is the user-initiated **GitHub project page** button, which asks Windows to open this public repository in the default browser. Copying diagnostics is also user-initiated and writes only to the local clipboard.
+
+Logs are bounded by rotation and sanitize the AppData application path and executable directory. Release builds disable debug symbols, and GitHub Actions builds release archives from source without local build artifacts.
+
+## Project structure
+
+```text
+AutoPowerMode.sln               Visual Studio / dotnet solution
+src/AutoPowerMode/              Application source
+  Configuration/               Configuration model and persistence
+  Localization/                System-language detection and UI strings
+  Models/                       State and data models
+  Policies/                     Switching and notification policies
+  Services/                     Windows and local-system services
+  UI/                           Tray, settings, and diagnostics UI
+tests/AutoPowerMode.Tests/      Logic tests
+docs/reviews/                   Historical release reviews
+archive/                        Git-ignored local build history
+```
+
+## Build and test
 
 ```bash
-dotnet run --project AutoPowerMode.Tests
+dotnet build AutoPowerMode.sln --configuration Release
+dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj
 ```
+
+The tests cover configuration migration, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
