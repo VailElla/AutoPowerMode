@@ -1,5 +1,13 @@
 # AutoPowerMode Changelog
 
+## [v1.3.3] - 2026-07-12
+
+- 修复 v1.3.2 在 Windows 打开设置窗口时可能抛出 `TableLayoutPanel` 已满异常的问题：响应式文字宽度和控件尺寸现在会在暂停子布局期间一次性更新，并允许布局表在 WinForms 需要时安全扩展行。
+- 新增 Windows 专用设置窗口冒烟测试，实际打开中英文设置页并在宽、窄窗口间反复缩放，同时确认不会出现横向滚动；PR 和正式发布流程都会在 Windows runner 上执行该测试。
+
+- Fixed a v1.3.2 startup error that could occur when opening Settings on Windows because a full fixed-size `TableLayoutPanel` relaid itself while responsive text constraints were still being updated. Child layout updates are now applied as one suspended batch, and the table can safely add a row if WinForms requires one.
+- Added a Windows-only Settings UI smoke test that opens both localized forms, repeatedly resizes between wide and narrow layouts, and verifies that horizontal scrolling stays hidden. The test now gates both pull requests and releases on a Windows runner.
+
 ## [v1.3.2] - 2026-07-12
 
 - 修复设置窗口缩小后仍出现横向滚动和左侧内容被裁切的问题：窄窗口自动切换为上下排列，长状态和选项文字可换行，并为纵向滚动条预留宽度；底部操作栏继续固定显示。

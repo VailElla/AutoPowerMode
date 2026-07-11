@@ -2,7 +2,7 @@
 
 # AutoPowerMode
 
-Current version: v1.3.2
+Current version: v1.3.3
 
 AutoPowerMode is a Windows-only system tray application that switches Windows power plans automatically according to whether the current user is actively using the computer.
 
@@ -50,6 +50,7 @@ src/AutoPowerMode/              Application source
   Services/                     Windows and local-system services
   UI/                           Tray, settings, and diagnostics UI
 tests/AutoPowerMode.Tests/      Logic tests
+tests/AutoPowerMode.WindowsUi.Tests/ Windows-only Settings UI smoke test
 docs/reviews/                   Historical release reviews
 archive/                        Git-ignored local build history
 ```
@@ -59,6 +60,8 @@ archive/                        Git-ignored local build history
 ```bash
 dotnet build AutoPowerMode.sln --configuration Release
 dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj
+# Windows only:
+dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi.Tests.csproj
 ```
 
-The tests cover configuration migration, independently configurable dual-rate monitoring, idle protections, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
+The logic tests cover configuration migration, independently configurable dual-rate monitoring, idle protections, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection. The Windows-only smoke test opens the localized Settings form and exercises both wide and compact layouts.
