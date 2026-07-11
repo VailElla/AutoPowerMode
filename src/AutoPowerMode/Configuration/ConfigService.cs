@@ -41,7 +41,7 @@ public sealed class ConfigService
             var config = Deserialize(json);
 
             config.Normalize();
-            Logger.Info($"已加载配置：空闲阈值={config.IdleThresholdSeconds} 秒，检测间隔={config.CheckIntervalSeconds} 秒，活跃计划={config.ActivePowerPlanGuid}，空闲计划={config.IdlePowerPlanGuid}，用户配置计划={config.PowerPlansConfiguredByUser}，开机自启={config.AutoStart}，通知={config.NotificationsEnabled}，语言={config.Language}，暂停={config.IsPaused}");
+            Logger.Info($"已加载配置：空闲阈值={config.IdleThresholdSeconds} 秒，活跃检测间隔={MonitoringIntervalPolicy.ActiveInterval.TotalSeconds:0} 秒，空闲检测间隔={MonitoringIntervalPolicy.IdleInterval.TotalSeconds:0} 秒，执行状态保护={config.PreventIdleOnExecutionState}，全屏保护={config.PreventIdleOnFullscreen}，活跃计划={config.ActivePowerPlanGuid}，空闲计划={config.IdlePowerPlanGuid}，用户配置计划={config.PowerPlansConfiguredByUser}，开机自启={config.AutoStart}，通知={config.NotificationsEnabled}，语言={config.Language}，暂停={config.IsPaused}");
             return config;
         }
         catch (Exception ex)
@@ -193,17 +193,6 @@ public sealed class ConfigService
                 Logger.Info($"检测到旧版 idleThresholdMinutes={idleThresholdMinutes}，已迁移为 idleThresholdSeconds={config.IdleThresholdSeconds}。");
             }
 
-            if (root.TryGetProperty("checkIntervalSeconds", out var checkSeconds) && checkSeconds.TryGetInt32(out var checkIntervalSeconds))
-            {
-                config.CheckIntervalSeconds = checkIntervalSeconds;
-            }
-            else if (root.TryGetProperty("checkIntervalMinutes", out var legacyCheckMinutes) && legacyCheckMinutes.TryGetInt32(out var checkIntervalMinutes))
-            {
-                config.LegacyCheckIntervalMinutes = checkIntervalMinutes;
-                config.CheckIntervalSeconds = ConvertLegacyMinutesToSeconds(checkIntervalMinutes);
-                Logger.Info($"检测到旧版 checkIntervalMinutes={checkIntervalMinutes}，已迁移为 checkIntervalSeconds={config.CheckIntervalSeconds}。");
-            }
-
             if (root.TryGetProperty("idlePowerPlanGuid", out var idleGuid))
             {
                 config.IdlePowerPlanGuid = idleGuid.GetString() ?? string.Empty;
@@ -223,6 +212,18 @@ public sealed class ConfigService
                 (notificationsEnabled.ValueKind is JsonValueKind.True or JsonValueKind.False))
             {
                 config.NotificationsEnabled = notificationsEnabled.GetBoolean();
+            }
+
+            if (root.TryGetProperty("preventIdleOnExecutionState", out var preventIdleOnExecutionState) &&
+                (preventIdleOnExecutionState.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            {
+                config.PreventIdleOnExecutionState = preventIdleOnExecutionState.GetBoolean();
+            }
+
+            if (root.TryGetProperty("preventIdleOnFullscreen", out var preventIdleOnFullscreen) &&
+                (preventIdleOnFullscreen.ValueKind is JsonValueKind.True or JsonValueKind.False))
+            {
+                config.PreventIdleOnFullscreen = preventIdleOnFullscreen.GetBoolean();
             }
 
             if (root.TryGetProperty("language", out var language) && language.ValueKind == JsonValueKind.String)
@@ -247,11 +248,12 @@ public sealed class ConfigService
         {
             writer.WriteStartObject();
             writer.WriteNumber("idleThresholdSeconds", value.IdleThresholdSeconds);
-            writer.WriteNumber("checkIntervalSeconds", value.CheckIntervalSeconds);
             writer.WriteString("idlePowerPlanGuid", value.IdlePowerPlanGuid);
             writer.WriteString("activePowerPlanGuid", value.ActivePowerPlanGuid);
             writer.WriteBoolean("autoStart", value.AutoStart);
             writer.WriteBoolean("notificationsEnabled", value.NotificationsEnabled);
+            writer.WriteBoolean("preventIdleOnExecutionState", value.PreventIdleOnExecutionState);
+            writer.WriteBoolean("preventIdleOnFullscreen", value.PreventIdleOnFullscreen);
             writer.WriteString("language", AppLanguagePreference.Normalize(value.Language));
             writer.WriteBoolean("isPaused", value.IsPaused);
             writer.WriteBoolean("powerPlansConfiguredByUser", value.PowerPlansConfiguredByUser);

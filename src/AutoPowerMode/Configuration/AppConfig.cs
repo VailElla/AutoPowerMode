@@ -7,19 +7,11 @@ public sealed class AppConfig
     public const int MinIdleThresholdSeconds = 10;
     public const int MaxIdleThresholdSeconds = 14400;
     public const int DefaultIdleThresholdSeconds = 1200;
-    public const int MinCheckIntervalSeconds = 1;
-    public const int MaxCheckIntervalSeconds = 60;
-    public const int DefaultCheckIntervalSeconds = 10;
 
     public int IdleThresholdSeconds { get; set; } = DefaultIdleThresholdSeconds;
 
     [JsonIgnore]
     public int? LegacyIdleThresholdMinutes { get; set; }
-
-    public int CheckIntervalSeconds { get; set; } = DefaultCheckIntervalSeconds;
-
-    [JsonIgnore]
-    public int? LegacyCheckIntervalMinutes { get; set; }
 
     public string IdlePowerPlanGuid { get; set; } = string.Empty;
 
@@ -28,6 +20,10 @@ public sealed class AppConfig
     public bool AutoStart { get; set; }
 
     public bool NotificationsEnabled { get; set; } = true;
+
+    public bool PreventIdleOnExecutionState { get; set; }
+
+    public bool PreventIdleOnFullscreen { get; set; }
 
     public string Language { get; set; } = AppLanguagePreference.System;
 
@@ -47,11 +43,12 @@ public sealed class AppConfig
         return new AppConfig
         {
             IdleThresholdSeconds = IdleThresholdSeconds,
-            CheckIntervalSeconds = CheckIntervalSeconds,
             IdlePowerPlanGuid = IdlePowerPlanGuid,
             ActivePowerPlanGuid = ActivePowerPlanGuid,
             AutoStart = AutoStart,
             NotificationsEnabled = NotificationsEnabled,
+            PreventIdleOnExecutionState = PreventIdleOnExecutionState,
+            PreventIdleOnFullscreen = PreventIdleOnFullscreen,
             Language = Language,
             IsPaused = IsPaused,
             PowerPlansConfiguredByUser = PowerPlansConfiguredByUser
@@ -69,16 +66,6 @@ public sealed class AppConfig
             IdleThresholdSeconds,
             MinIdleThresholdSeconds,
             MaxIdleThresholdSeconds);
-
-        if (CheckIntervalSeconds <= 0)
-        {
-            CheckIntervalSeconds = DefaultCheckIntervalSeconds;
-        }
-
-        CheckIntervalSeconds = Math.Clamp(
-            CheckIntervalSeconds,
-            MinCheckIntervalSeconds,
-            MaxCheckIntervalSeconds);
 
         IdlePowerPlanGuid = IdlePowerPlanGuid.Trim();
         ActivePowerPlanGuid = ActivePowerPlanGuid.Trim();

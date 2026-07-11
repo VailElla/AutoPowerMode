@@ -16,6 +16,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly StartupService _startupService = new();
     private readonly PowerPlanManager _powerPlanManager = new();
     private readonly IdleDetector _idleDetector = new();
+    private readonly SystemIdleProtectionDetector _idleProtectionDetector = new();
     private readonly PowerModeTransitionPolicy _transitionPolicy = new();
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly NotifyIcon _notifyIcon;
@@ -24,7 +25,7 @@ public sealed class TrayAppContext : ApplicationContext
     private readonly ToolStripMenuItem _currentPlanMenuItem = new();
     private readonly ToolStripMenuItem _versionMenuItem = new();
     private readonly ToolStripMenuItem _idleThresholdMenuItem = new();
-    private readonly ToolStripMenuItem _checkIntervalMenuItem = new();
+    private readonly ToolStripMenuItem _monitoringScheduleMenuItem = new();
     private readonly ToolStripMenuItem _togglePauseMenuItem = new();
     private readonly ToolStripMenuItem _switchToActiveMenuItem = new();
     private readonly ToolStripMenuItem _switchToIdleMenuItem = new();
@@ -40,6 +41,7 @@ public sealed class TrayAppContext : ApplicationContext
     private SettingsForm? _settingsForm;
     private DiagnosticForm? _diagnosticForm;
     private UserActivityState _userActivityState = UserActivityState.Unknown;
+    private IdleProtectionReason _idleProtectionReason = IdleProtectionReason.None;
     private ControlState _controlState = ControlState.NotConfigured;
     private PowerPlan? _currentPowerPlan;
     private DateTimeOffset _lastSwitchTime = DateTimeOffset.MinValue;
@@ -100,7 +102,7 @@ public sealed class TrayAppContext : ApplicationContext
         _currentPlanMenuItem.Enabled = false;
         _versionMenuItem.Enabled = false;
         _idleThresholdMenuItem.Enabled = false;
-        _checkIntervalMenuItem.Enabled = false;
+        _monitoringScheduleMenuItem.Enabled = false;
 
         _togglePauseMenuItem.Click += (_, _) => TogglePause();
         _switchToActiveMenuItem.Click += async (_, _) => await SwitchToConfiguredPlanAsync(UserActivityState.Active, manual: true, CancellationToken.None);
@@ -125,7 +127,7 @@ public sealed class TrayAppContext : ApplicationContext
             _statusMenuItem,
             _currentPlanMenuItem,
             _idleThresholdMenuItem,
-            _checkIntervalMenuItem,
+            _monitoringScheduleMenuItem,
             new ToolStripSeparator(),
             _togglePauseMenuItem,
             _switchToActiveMenuItem,
@@ -146,8 +148,7 @@ public sealed class TrayAppContext : ApplicationContext
             {
                 await EvaluateOnceAsync(cancellationToken);
 
-                var config = GetConfigSnapshot();
-                var delay = TimeSpan.FromSeconds(config.CheckIntervalSeconds);
+                var delay = MonitoringIntervalPolicy.GetInterval(_userActivityState);
                 await Task.Delay(delay, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -180,6 +181,7 @@ public sealed class TrayAppContext : ApplicationContext
         if (config.IsPaused)
         {
             SetControlState(ControlState.PausedByUser);
+            SetIdleProtectionReason(IdleProtectionReason.None);
             _transitionPolicy.Reset();
             return;
         }
@@ -187,11 +189,26 @@ public sealed class TrayAppContext : ApplicationContext
         if (!isConfigured)
         {
             SetControlState(ControlState.NotConfigured);
+            SetIdleProtectionReason(IdleProtectionReason.None);
             _transitionPolicy.Reset();
             return;
         }
 
         var idleTime = _idleDetector.GetIdleTime();
+        var idleProtectionReason = DetectIdleProtectionReason(config, idleTime, idleThreshold);
+        SetIdleProtectionReason(idleProtectionReason);
+
+        if (idleProtectionReason != IdleProtectionReason.None)
+        {
+            var protectedTargetState = _transitionPolicy.SuppressIdleTransition();
+            if (protectedTargetState == UserActivityState.Active)
+            {
+                await SwitchToConfiguredPlanAsync(UserActivityState.Active, manual: false, cancellationToken);
+            }
+
+            return;
+        }
+
         var targetActivityState = _transitionPolicy.Evaluate(
             idleTime,
             idleThreshold,
@@ -201,6 +218,30 @@ public sealed class TrayAppContext : ApplicationContext
         {
             await SwitchToConfiguredPlanAsync(targetActivityState.Value, manual: false, cancellationToken);
         }
+    }
+
+    private IdleProtectionReason DetectIdleProtectionReason(
+        AppConfig config,
+        TimeSpan idleTime,
+        TimeSpan idleThreshold)
+    {
+        if (idleTime < idleThreshold)
+        {
+            return IdleProtectionReason.None;
+        }
+
+        var reason = IdleProtectionReason.None;
+        if (config.PreventIdleOnExecutionState && _idleProtectionDetector.IsExecutionStateBlockingIdle())
+        {
+            reason |= IdleProtectionReason.ExecutionState;
+        }
+
+        if (config.PreventIdleOnFullscreen && _idleProtectionDetector.IsForegroundWindowFullscreen())
+        {
+            reason |= IdleProtectionReason.FullscreenForegroundWindow;
+        }
+
+        return reason;
     }
 
     private Task SwitchToConfiguredPlanAsync(UserActivityState targetActivityState, bool manual, CancellationToken cancellationToken)
@@ -546,6 +587,11 @@ public sealed class TrayAppContext : ApplicationContext
             _config = newConfig;
         }
 
+        if (!newConfig.PreventIdleOnExecutionState && !newConfig.PreventIdleOnFullscreen)
+        {
+            SetIdleProtectionReason(IdleProtectionReason.None);
+        }
+
         SaveConfigWithUserFeedback(LocalizationService.Text("SettingsSaveFailed"), alwaysShowFailure: true);
         Logger.Info("用户修改设置。");
         RefreshStateFromConfig();
@@ -679,10 +725,12 @@ public sealed class TrayAppContext : ApplicationContext
         var config = GetConfigSnapshot();
         if (config.IsPaused)
         {
+            SetIdleProtectionReason(IdleProtectionReason.None);
             SetControlState(ControlState.PausedByUser);
         }
         else if (!IsConfigured(config))
         {
+            SetIdleProtectionReason(IdleProtectionReason.None);
             SetControlState(ControlState.NotConfigured);
         }
         else if (_controlState is ControlState.PausedByUser or ControlState.NotConfigured)
@@ -707,7 +755,10 @@ public sealed class TrayAppContext : ApplicationContext
         _statusMenuItem.Text = LocalizationService.Format("StatusMenu", statusText);
         _currentPlanMenuItem.Text = LocalizationService.Format("CurrentPlanMenu", currentPowerPlanName);
         _idleThresholdMenuItem.Text = LocalizationService.Format("IdleThresholdMenu", config.IdleThresholdSeconds);
-        _checkIntervalMenuItem.Text = LocalizationService.Format("CheckIntervalMenu", config.CheckIntervalSeconds);
+        _monitoringScheduleMenuItem.Text = LocalizationService.Format(
+            "MonitoringScheduleMenu",
+            (int)MonitoringIntervalPolicy.ActiveInterval.TotalSeconds,
+            (int)MonitoringIntervalPolicy.IdleInterval.TotalSeconds);
         _togglePauseMenuItem.Text = LocalizationService.Text(config.IsPaused ? "ResumeSwitching" : "PauseSwitching");
         _switchToActiveMenuItem.Text = LocalizationService.Text("SwitchToActive");
         _switchToIdleMenuItem.Text = LocalizationService.Text("SwitchToIdle");
@@ -740,6 +791,13 @@ public sealed class TrayAppContext : ApplicationContext
         if (!IsConfigured(config))
         {
             return LocalizationService.Text("StatusNotConfigured");
+        }
+
+        if (_controlState == ControlState.Running && _idleProtectionReason != IdleProtectionReason.None)
+        {
+            return LocalizationService.Format(
+                "StatusIdleProtected",
+                GetIdleProtectionReasonText(_idleProtectionReason));
         }
 
         return _controlState switch
@@ -802,7 +860,15 @@ public sealed class TrayAppContext : ApplicationContext
             IdlePlanConfig = FormatPlan(_powerPlanManager.FindByGuid(_powerPlans, config.IdlePowerPlanGuid), config.IdlePowerPlanGuid),
             IdleTime = idleTimeText,
             IdleThreshold = FormatDuration(TimeSpan.FromSeconds(config.IdleThresholdSeconds)),
-            CheckInterval = FormatDuration(TimeSpan.FromSeconds(config.CheckIntervalSeconds)),
+            MonitoringSchedule = LocalizationService.Format(
+                "MonitoringScheduleValue",
+                (int)MonitoringIntervalPolicy.ActiveInterval.TotalSeconds,
+                (int)MonitoringIntervalPolicy.IdleInterval.TotalSeconds),
+            IdleProtectionSettings = LocalizationService.Format(
+                "IdleProtectionSettingsValue",
+                LocalizationService.Text(config.PreventIdleOnExecutionState ? "Enabled" : "Disabled"),
+                LocalizationService.Text(config.PreventIdleOnFullscreen ? "Enabled" : "Disabled")),
+            CurrentIdleProtection = GetIdleProtectionReasonText(_idleProtectionReason),
             NotificationsEnabled = config.NotificationsEnabled,
             LastSwitchStatus = _lastSwitchStatusTime == DateTimeOffset.MinValue
                 ? _lastSwitchStatus
@@ -847,6 +913,18 @@ public sealed class TrayAppContext : ApplicationContext
         return LocalizationService.Format("SecondsValue", Math.Max(0, (int)duration.TotalSeconds));
     }
 
+    private static string GetIdleProtectionReasonText(IdleProtectionReason reason)
+    {
+        return reason switch
+        {
+            IdleProtectionReason.ExecutionState => LocalizationService.Text("IdleProtectionExecutionStateReason"),
+            IdleProtectionReason.FullscreenForegroundWindow => LocalizationService.Text("IdleProtectionFullscreenReason"),
+            IdleProtectionReason.ExecutionState | IdleProtectionReason.FullscreenForegroundWindow =>
+                LocalizationService.Text("IdleProtectionBothReasons"),
+            _ => LocalizationService.Text("None")
+        };
+    }
+
     private AppConfig GetConfigSnapshot()
     {
         lock (_sync)
@@ -883,6 +961,26 @@ public sealed class TrayAppContext : ApplicationContext
     {
         _userActivityState = state;
         _transitionPolicy.MarkActivityState(state);
+        PostToUi(RefreshMenuItems);
+    }
+
+    private void SetIdleProtectionReason(IdleProtectionReason reason)
+    {
+        if (_idleProtectionReason == reason)
+        {
+            return;
+        }
+
+        _idleProtectionReason = reason;
+        if (reason == IdleProtectionReason.None)
+        {
+            Logger.Info("空闲误触保护已解除。");
+        }
+        else
+        {
+            Logger.Info($"空闲误触保护已生效：{reason}。");
+        }
+
         PostToUi(RefreshMenuItems);
     }
 

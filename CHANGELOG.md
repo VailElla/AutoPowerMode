@@ -1,5 +1,17 @@
 # AutoPowerMode Changelog
 
+## [v1.3.0] - 2026-07-11
+
+- 新增两个默认关闭、可独立勾选的空闲误触保护：识别其他程序声明的 `ES_SYSTEM_REQUIRED`、`ES_DISPLAY_REQUIRED`、`ES_AWAYMODE_REQUIRED`，以及当前前台窗口是否全屏；保护条件成立时不应用空闲规则。
+- 检测改为双频固定策略：活跃或未知状态每 30 秒检测，进入空闲计划后每 1 秒检测，以便用户回来时快速恢复。
+- 设置、托盘状态、诊断信息、配置持久化和中英文文档已同步更新；旧版单一检测间隔字段在下次保存时移除。
+- 补充执行状态位、全屏边界、保护取消连续空闲确认、双频检测和配置持久化测试。
+
+- Added two independent, opt-in idle protections, disabled by default: Windows execution-state requests (`ES_SYSTEM_REQUIRED`, `ES_DISPLAY_REQUIRED`, and `ES_AWAYMODE_REQUIRED`) and fullscreen foreground windows.
+- Replaced the configurable single interval with fixed dual-rate monitoring: every 30 seconds while active or unknown, and every second after entering the idle plan.
+- Updated settings, tray status, diagnostics, configuration persistence, and bilingual documentation. Obsolete single-interval fields are removed the next time configuration is saved.
+- Added tests for execution-state flags, fullscreen bounds, protected idle confirmations, dual-rate monitoring, and configuration persistence.
+
 ## [v1.2.0] - 2026-07-11
 
 - 新增英文与简体中文界面；中文 Windows 系统文化默认使用简体中文，其他系统文化默认使用英文。

@@ -3,14 +3,16 @@ using System.Drawing;
 
 var tests = new (string Name, Action Run)[]
 {
-    ("ConfigService migrates legacy minutes to seconds", ConfigServiceTests.MigratesLegacyMinutesToSeconds),
-    ("ConfigService keeps current second fields over legacy fields", ConfigServiceTests.KeepsSecondFieldsOverLegacyFields),
+    ("ConfigService migrates legacy idle minutes to seconds", ConfigServiceTests.MigratesLegacyIdleMinutesToSeconds),
+    ("ConfigService keeps current idle seconds over legacy minutes", ConfigServiceTests.KeepsCurrentIdleSecondsOverLegacyMinutes),
+    ("ConfigService removes obsolete check intervals when saving", ConfigServiceTests.RemovesObsoleteCheckIntervalsWhenSaving),
     ("ConfigService defaults AutoStart to false", ConfigServiceTests.DefaultsAutoStartToFalse),
     ("ConfigService defaults notifications to enabled", ConfigServiceTests.DefaultsNotificationsToEnabled),
     ("ConfigService preserves disabled notifications", ConfigServiceTests.PreservesDisabledNotifications),
+    ("ConfigService defaults idle protections to disabled", ConfigServiceTests.DefaultsIdleProtectionsToDisabled),
+    ("ConfigService preserves enabled idle protections", ConfigServiceTests.PreservesEnabledIdleProtections),
     ("ConfigService defaults language to system", ConfigServiceTests.DefaultsLanguageToSystem),
     ("ConfigService preserves manual language", ConfigServiceTests.PreservesManualLanguage),
-    ("ConfigService accepts check intervals from one to sixty seconds", ConfigServiceTests.AcceptsOneToSixtySecondCheckIntervals),
     ("Localization uses Chinese for Chinese system cultures", LocalizationTests.UsesChineseForChineseSystemCultures),
     ("Localization uses English for non-Chinese system cultures", LocalizationTests.UsesEnglishForNonChineseSystemCultures),
     ("Localization manual selection overrides system culture", LocalizationTests.ManualSelectionOverridesSystemCulture),
@@ -24,6 +26,11 @@ var tests = new (string Name, Action Run)[]
     ("PowerPlanManager matches GUIDs case-insensitively", PowerPlanManagerTests.MatchesGuidsCaseInsensitively),
     ("PowerModeTransitionPolicy requires consecutive idle confirmations", PowerModeTransitionPolicyTests.RequiresConsecutiveIdleConfirmations),
     ("PowerModeTransitionPolicy resumes active immediately", PowerModeTransitionPolicyTests.ResumesActiveImmediately),
+    ("PowerModeTransitionPolicy cancels pending idle confirmations when protected", PowerModeTransitionPolicyTests.ProtectionCancelsPendingIdleConfirmations),
+    ("MonitoringIntervalPolicy uses thirty seconds while active and one second while idle", MonitoringIntervalPolicyTests.UsesRequiredIntervals),
+    ("SystemIdleProtectionDetector recognizes blocking execution-state flags", SystemIdleProtectionDetectorTests.RecognizesBlockingExecutionStateFlags),
+    ("SystemIdleProtectionDetector recognizes fullscreen monitor bounds", SystemIdleProtectionDetectorTests.RecognizesFullscreenMonitorBounds),
+    ("SystemIdleProtectionDetector excludes Windows shell surfaces", SystemIdleProtectionDetectorTests.ExcludesWindowsShellSurfaces),
     ("DpiLayoutPolicy scales from one hundred to two hundred fifty percent", DpiLayoutPolicyTests.ScalesAcrossSupportedDpiRange),
     ("DpiLayoutPolicy clamps to the monitor working area", DpiLayoutPolicyTests.ClampsToWorkingArea),
     ("PowerPlanNotificationPolicy classifies startup synchronization", PowerPlanNotificationPolicyTests.ClassifiesStartupSynchronization),
@@ -66,34 +73,45 @@ Console.WriteLine($"{tests.Length} test(s) passed.");
 
 internal static class ConfigServiceTests
 {
-    public static void MigratesLegacyMinutesToSeconds()
+    public static void MigratesLegacyIdleMinutesToSeconds()
     {
         var config = ConfigService.Deserialize(
             """
             {
-              "idleThresholdMinutes": 15,
-              "checkIntervalMinutes": 1
+              "idleThresholdMinutes": 15
             }
             """);
 
         Assert.Equal(900, config.IdleThresholdSeconds);
-        Assert.Equal(60, config.CheckIntervalSeconds);
     }
 
-    public static void KeepsSecondFieldsOverLegacyFields()
+    public static void KeepsCurrentIdleSecondsOverLegacyMinutes()
     {
         var config = ConfigService.Deserialize(
             """
             {
               "idleThresholdSeconds": 45,
-              "idleThresholdMinutes": 15,
+              "idleThresholdMinutes": 15
+            }
+            """);
+
+        Assert.Equal(45, config.IdleThresholdSeconds);
+    }
+
+    public static void RemovesObsoleteCheckIntervalsWhenSaving()
+    {
+        var config = ConfigService.Deserialize(
+            """
+            {
               "checkIntervalSeconds": 6,
               "checkIntervalMinutes": 2
             }
             """);
 
-        Assert.Equal(45, config.IdleThresholdSeconds);
-        Assert.Equal(6, config.CheckIntervalSeconds);
+        var serialized = ConfigService.Serialize(config);
+
+        Assert.DoesNotContain("checkIntervalSeconds", serialized);
+        Assert.DoesNotContain("checkIntervalMinutes", serialized);
     }
 
     public static void DefaultsAutoStartToFalse()
@@ -124,6 +142,35 @@ internal static class ConfigServiceTests
         Assert.False(config.Clone().NotificationsEnabled);
     }
 
+    public static void DefaultsIdleProtectionsToDisabled()
+    {
+        var config = ConfigService.Deserialize("{}");
+
+        Assert.False(config.PreventIdleOnExecutionState);
+        Assert.False(config.PreventIdleOnFullscreen);
+    }
+
+    public static void PreservesEnabledIdleProtections()
+    {
+        var config = ConfigService.Deserialize(
+            """
+            {
+              "preventIdleOnExecutionState": true,
+              "preventIdleOnFullscreen": true
+            }
+            """);
+
+        var serialized = ConfigService.Serialize(config);
+        var clone = config.Clone();
+
+        Assert.True(config.PreventIdleOnExecutionState);
+        Assert.True(config.PreventIdleOnFullscreen);
+        Assert.Contains("\"preventIdleOnExecutionState\": true", serialized);
+        Assert.Contains("\"preventIdleOnFullscreen\": true", serialized);
+        Assert.True(clone.PreventIdleOnExecutionState);
+        Assert.True(clone.PreventIdleOnFullscreen);
+    }
+
     public static void DefaultsLanguageToSystem()
     {
         var config = ConfigService.Deserialize("{}");
@@ -141,17 +188,6 @@ internal static class ConfigServiceTests
 
         var invalid = ConfigService.Deserialize("{ \"language\": \"fr\" }");
         Assert.Equal(AppLanguagePreference.System, invalid.Language);
-    }
-
-    public static void AcceptsOneToSixtySecondCheckIntervals()
-    {
-        var oneSecond = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 1 }");
-        var sixtySeconds = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 60 }");
-        var aboveMaximum = ConfigService.Deserialize("{ \"checkIntervalSeconds\": 61 }");
-
-        Assert.Equal(1, oneSecond.CheckIntervalSeconds);
-        Assert.Equal(60, sixtySeconds.CheckIntervalSeconds);
-        Assert.Equal(60, aboveMaximum.CheckIntervalSeconds);
     }
 
     public static void CleansStaleTempFilesOnly()
@@ -365,6 +401,82 @@ internal static class PowerModeTransitionPolicyTests
             TimeSpan.FromSeconds(10));
 
         Assert.Equal(UserActivityState.Active, result);
+    }
+
+    public static void ProtectionCancelsPendingIdleConfirmations()
+    {
+        var policy = new PowerModeTransitionPolicy(requiredIdleDetections: 2);
+        policy.MarkActivityState(UserActivityState.Active);
+
+        var firstIdleDetection = policy.Evaluate(
+            TimeSpan.FromSeconds(20),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10));
+        var protectedResult = policy.SuppressIdleTransition();
+        var firstDetectionAfterProtection = policy.Evaluate(
+            TimeSpan.FromSeconds(21),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10));
+        var secondDetectionAfterProtection = policy.Evaluate(
+            TimeSpan.FromSeconds(22),
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10));
+
+        Assert.Null(firstIdleDetection);
+        Assert.Null(protectedResult);
+        Assert.Null(firstDetectionAfterProtection);
+        Assert.Equal(UserActivityState.Idle, secondDetectionAfterProtection);
+
+        policy.MarkActivityState(UserActivityState.Idle);
+        Assert.Equal(UserActivityState.Active, policy.SuppressIdleTransition());
+    }
+}
+
+internal static class MonitoringIntervalPolicyTests
+{
+    public static void UsesRequiredIntervals()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.ActiveInterval);
+        Assert.Equal(TimeSpan.FromSeconds(1), MonitoringIntervalPolicy.IdleInterval);
+        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.GetInterval(UserActivityState.Unknown));
+        Assert.Equal(TimeSpan.FromSeconds(30), MonitoringIntervalPolicy.GetInterval(UserActivityState.Active));
+        Assert.Equal(TimeSpan.FromSeconds(1), MonitoringIntervalPolicy.GetInterval(UserActivityState.Idle));
+    }
+}
+
+internal static class SystemIdleProtectionDetectorTests
+{
+    public static void RecognizesBlockingExecutionStateFlags()
+    {
+        Assert.False(SystemIdleProtectionDetector.HasBlockingExecutionState(0));
+        Assert.True(SystemIdleProtectionDetector.HasBlockingExecutionState(0x00000001));
+        Assert.True(SystemIdleProtectionDetector.HasBlockingExecutionState(0x00000002));
+        Assert.True(SystemIdleProtectionDetector.HasBlockingExecutionState(0x00000040));
+        Assert.True(SystemIdleProtectionDetector.HasBlockingExecutionState(0x00000043));
+        Assert.False(SystemIdleProtectionDetector.HasBlockingExecutionState(0x80000000));
+        Assert.False(SystemIdleProtectionDetector.HasBlockingExecutionState(0x00000004));
+    }
+
+    public static void RecognizesFullscreenMonitorBounds()
+    {
+        var monitor = new SystemIdleProtectionDetector.NativeRect(0, 0, 1920, 1080);
+        var exact = new SystemIdleProtectionDetector.NativeRect(0, 0, 1920, 1080);
+        var withinTolerance = new SystemIdleProtectionDetector.NativeRect(-2, 1, 1922, 1078);
+        var maximizedWorkArea = new SystemIdleProtectionDetector.NativeRect(0, 0, 1920, 1040);
+
+        Assert.True(SystemIdleProtectionDetector.CoversMonitorBounds(exact, monitor));
+        Assert.True(SystemIdleProtectionDetector.CoversMonitorBounds(withinTolerance, monitor));
+        Assert.False(SystemIdleProtectionDetector.CoversMonitorBounds(maximizedWorkArea, monitor));
+    }
+
+    public static void ExcludesWindowsShellSurfaces()
+    {
+        Assert.True(SystemIdleProtectionDetector.IsExcludedShellWindowClass("Progman"));
+        Assert.True(SystemIdleProtectionDetector.IsExcludedShellWindowClass("WorkerW"));
+        Assert.True(SystemIdleProtectionDetector.IsExcludedShellWindowClass("Shell_TrayWnd"));
+        Assert.True(SystemIdleProtectionDetector.IsExcludedShellWindowClass("shell_secondarytraywnd"));
+        Assert.False(SystemIdleProtectionDetector.IsExcludedShellWindowClass("Chrome_WidgetWin_1"));
+        Assert.False(SystemIdleProtectionDetector.IsExcludedShellWindowClass(null));
     }
 }
 

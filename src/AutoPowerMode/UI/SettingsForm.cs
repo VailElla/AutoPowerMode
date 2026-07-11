@@ -9,15 +9,17 @@ public sealed class SettingsForm : Form
     private const int InputMinimumWidth = 190;
 
     private readonly NumericUpDown _idleThresholdInput = new();
-    private readonly NumericUpDown _checkIntervalInput = new();
+    private readonly Label _monitoringScheduleValueLabel = new();
     private readonly ComboBox _activePlanCombo = new();
     private readonly ComboBox _idlePlanCombo = new();
     private readonly ComboBox _languageCombo = new();
     private readonly CheckBox _autoStartCheckBox = new();
     private readonly CheckBox _notificationsEnabledCheckBox = new();
+    private readonly CheckBox _preventIdleOnExecutionStateCheckBox = new();
+    private readonly CheckBox _preventIdleOnFullscreenCheckBox = new();
     private readonly Label _automationStatusValueLabel = new();
     private readonly TableLayoutPanel _root = new();
-    private readonly ToolTip _powerPlanToolTip = new();
+    private readonly ToolTip _toolTip = new();
     private readonly AppConfig _originalConfig;
 
     public SettingsForm(AppConfig config, IReadOnlyList<PowerPlan> powerPlans, string automationStatusText)
@@ -61,14 +63,14 @@ public sealed class SettingsForm : Form
         root.Dock = DockStyle.Fill;
         root.Padding = new Padding(12);
         root.ColumnCount = 3;
-        root.RowCount = 9;
+        root.RowCount = 10;
         root.GrowStyle = TableLayoutPanelGrowStyle.FixedSize;
 
         root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
 
-        for (var i = 0; i < 8; i++)
+        for (var i = 0; i < 9; i++)
         {
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         }
@@ -82,12 +84,12 @@ public sealed class SettingsForm : Form
         _idleThresholdInput.Dock = DockStyle.Fill;
         _idleThresholdInput.MinimumSize = new Size(InputMinimumWidth, 0);
 
-        _checkIntervalInput.Minimum = AppConfig.MinCheckIntervalSeconds;
-        _checkIntervalInput.Maximum = AppConfig.MaxCheckIntervalSeconds;
-        _checkIntervalInput.DecimalPlaces = 0;
-        _checkIntervalInput.ThousandsSeparator = false;
-        _checkIntervalInput.Dock = DockStyle.Fill;
-        _checkIntervalInput.MinimumSize = new Size(InputMinimumWidth, 0);
+        _monitoringScheduleValueLabel.Text = LocalizationService.Format(
+            "MonitoringScheduleValue",
+            (int)MonitoringIntervalPolicy.ActiveInterval.TotalSeconds,
+            (int)MonitoringIntervalPolicy.IdleInterval.TotalSeconds);
+        _monitoringScheduleValueLabel.AutoSize = true;
+        _monitoringScheduleValueLabel.Anchor = AnchorStyles.Left;
 
         _automationStatusValueLabel.AutoSize = false;
         _automationStatusValueLabel.AutoEllipsis = true;
@@ -117,6 +119,20 @@ public sealed class SettingsForm : Form
         _notificationsEnabledCheckBox.AutoSize = true;
         _notificationsEnabledCheckBox.Anchor = AnchorStyles.Left;
 
+        _preventIdleOnExecutionStateCheckBox.Text = LocalizationService.Text("PreventIdleOnExecutionState");
+        _preventIdleOnExecutionStateCheckBox.AutoSize = true;
+        _preventIdleOnExecutionStateCheckBox.Anchor = AnchorStyles.Left;
+        _toolTip.SetToolTip(
+            _preventIdleOnExecutionStateCheckBox,
+            LocalizationService.Text("PreventIdleOnExecutionStateHint"));
+
+        _preventIdleOnFullscreenCheckBox.Text = LocalizationService.Text("PreventIdleOnFullscreen");
+        _preventIdleOnFullscreenCheckBox.AutoSize = true;
+        _preventIdleOnFullscreenCheckBox.Anchor = AnchorStyles.Left;
+        _toolTip.SetToolTip(
+            _preventIdleOnFullscreenCheckBox,
+            LocalizationService.Text("PreventIdleOnFullscreenHint"));
+
         AddText(root, LocalizationService.Text("AutomationStatus"), 0, 0);
         root.Controls.Add(_automationStatusValueLabel, 1, 0);
         root.SetColumnSpan(_automationStatusValueLabel, 2);
@@ -125,9 +141,9 @@ public sealed class SettingsForm : Form
         root.Controls.Add(_idleThresholdInput, 1, 1);
         AddText(root, LocalizationService.Text("Seconds"), 2, 1);
 
-        AddText(root, LocalizationService.Text("CheckInterval"), 0, 2);
-        root.Controls.Add(_checkIntervalInput, 1, 2);
-        AddText(root, LocalizationService.Text("Seconds"), 2, 2);
+        AddText(root, LocalizationService.Text("MonitoringSchedule"), 0, 2);
+        root.Controls.Add(_monitoringScheduleValueLabel, 1, 2);
+        root.SetColumnSpan(_monitoringScheduleValueLabel, 2);
 
         AddText(root, LocalizationService.Text("ActivePowerPlan"), 0, 3);
         root.Controls.Add(_activePlanCombo, 1, 3);
@@ -137,16 +153,35 @@ public sealed class SettingsForm : Form
         root.Controls.Add(_idlePlanCombo, 1, 4);
         root.SetColumnSpan(_idlePlanCombo, 2);
 
-        AddText(root, LocalizationService.Text("Startup"), 0, 5);
-        root.Controls.Add(_autoStartCheckBox, 1, 5);
+        var idleProtectionOptions = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Dock = DockStyle.Fill,
+            ColumnCount = 1,
+            RowCount = 2,
+            Margin = Padding.Empty
+        };
+        idleProtectionOptions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        idleProtectionOptions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        idleProtectionOptions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        idleProtectionOptions.Controls.Add(_preventIdleOnExecutionStateCheckBox, 0, 0);
+        idleProtectionOptions.Controls.Add(_preventIdleOnFullscreenCheckBox, 0, 1);
+
+        AddText(root, LocalizationService.Text("IdleProtection"), 0, 5);
+        root.Controls.Add(idleProtectionOptions, 1, 5);
+        root.SetColumnSpan(idleProtectionOptions, 2);
+
+        AddText(root, LocalizationService.Text("Startup"), 0, 6);
+        root.Controls.Add(_autoStartCheckBox, 1, 6);
         root.SetColumnSpan(_autoStartCheckBox, 2);
 
-        AddText(root, LocalizationService.Text("SystemNotifications"), 0, 6);
-        root.Controls.Add(_notificationsEnabledCheckBox, 1, 6);
+        AddText(root, LocalizationService.Text("SystemNotifications"), 0, 7);
+        root.Controls.Add(_notificationsEnabledCheckBox, 1, 7);
         root.SetColumnSpan(_notificationsEnabledCheckBox, 2);
 
-        AddText(root, LocalizationService.Text("Language"), 0, 7);
-        root.Controls.Add(_languageCombo, 1, 7);
+        AddText(root, LocalizationService.Text("Language"), 0, 8);
+        root.Controls.Add(_languageCombo, 1, 8);
         root.SetColumnSpan(_languageCombo, 2);
 
         var buttons = new FlowLayoutPanel
@@ -195,7 +230,7 @@ public sealed class SettingsForm : Form
         buttonBar.Controls.Add(githubButton, 0, 0);
         buttonBar.Controls.Add(buttons, 1, 0);
 
-        root.Controls.Add(buttonBar, 0, 8);
+        root.Controls.Add(buttonBar, 0, 9);
         root.SetColumnSpan(buttonBar, 3);
 
         AcceptButton = saveButton;
@@ -259,17 +294,14 @@ public sealed class SettingsForm : Form
             AppConfig.MinIdleThresholdSeconds,
             AppConfig.MaxIdleThresholdSeconds);
 
-        _checkIntervalInput.Value = Math.Clamp(
-            config.CheckIntervalSeconds,
-            AppConfig.MinCheckIntervalSeconds,
-            AppConfig.MaxCheckIntervalSeconds);
-
         SelectPlan(_activePlanCombo, config.ActivePowerPlanGuid, preferActivePlan: true);
         SelectPlan(_idlePlanCombo, config.IdlePowerPlanGuid, preferActivePlan: false);
         UpdatePlanToolTip(_activePlanCombo);
         UpdatePlanToolTip(_idlePlanCombo);
         _autoStartCheckBox.Checked = config.AutoStart;
         _notificationsEnabledCheckBox.Checked = config.NotificationsEnabled;
+        _preventIdleOnExecutionStateCheckBox.Checked = config.PreventIdleOnExecutionState;
+        _preventIdleOnFullscreenCheckBox.Checked = config.PreventIdleOnFullscreen;
         SelectLanguage(config.Language);
     }
 
@@ -318,7 +350,7 @@ public sealed class SettingsForm : Form
     private void UpdatePlanToolTip(ComboBox comboBox)
     {
         var text = comboBox.SelectedItem is PowerPlan plan ? plan.TooltipText : string.Empty;
-        _powerPlanToolTip.SetToolTip(comboBox, text);
+        _toolTip.SetToolTip(comboBox, text);
     }
 
     private static int CalculatePlanDropDownWidth(ComboBox comboBox, IReadOnlyList<PowerPlan> powerPlans)
@@ -438,11 +470,12 @@ public sealed class SettingsForm : Form
 
         SavedConfig = _originalConfig.Clone();
         SavedConfig.IdleThresholdSeconds = (int)_idleThresholdInput.Value;
-        SavedConfig.CheckIntervalSeconds = (int)_checkIntervalInput.Value;
         SavedConfig.ActivePowerPlanGuid = activePlan?.Guid ?? string.Empty;
         SavedConfig.IdlePowerPlanGuid = idlePlan?.Guid ?? string.Empty;
         SavedConfig.AutoStart = _autoStartCheckBox.Checked;
         SavedConfig.NotificationsEnabled = _notificationsEnabledCheckBox.Checked;
+        SavedConfig.PreventIdleOnExecutionState = _preventIdleOnExecutionStateCheckBox.Checked;
+        SavedConfig.PreventIdleOnFullscreen = _preventIdleOnFullscreenCheckBox.Checked;
         SavedConfig.Language = (_languageCombo.SelectedItem as LanguageOption)?.Preference
                                ?? AppLanguagePreference.System;
         SavedConfig.PowerPlansConfiguredByUser = true;
@@ -462,20 +495,6 @@ public sealed class SettingsForm : Form
                     "IdleRangeValidation",
                     AppConfig.MinIdleThresholdSeconds,
                     AppConfig.MaxIdleThresholdSeconds),
-                AppInfo.DisplayName,
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Warning);
-            return false;
-        }
-
-        if (_checkIntervalInput.Value < AppConfig.MinCheckIntervalSeconds ||
-            _checkIntervalInput.Value > AppConfig.MaxCheckIntervalSeconds)
-        {
-            MessageBox.Show(
-                LocalizationService.Format(
-                    "CheckRangeValidation",
-                    AppConfig.MinCheckIntervalSeconds,
-                    AppConfig.MaxCheckIntervalSeconds),
                 AppInfo.DisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Warning);
@@ -531,7 +550,7 @@ public sealed class SettingsForm : Form
     {
         if (disposing)
         {
-            _powerPlanToolTip.Dispose();
+            _toolTip.Dispose();
         }
 
         base.Dispose(disposing);

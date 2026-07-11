@@ -2,7 +2,7 @@
 
 # AutoPowerMode
 
-Current version: v1.2.0
+Current version: v1.3.0
 
 AutoPowerMode is a Windows-only system tray application that switches Windows power plans automatically according to whether the current user is actively using the computer.
 
@@ -21,7 +21,8 @@ The application starts directly in the system tray. After the configured idle th
 
 - Runs in the system tray without opening a main window at startup.
 - Uses Windows `GetLastInputInfo` to detect keyboard and mouse idle time.
-- Defaults to a 1,200-second idle threshold and a 10-second check interval; the interval can be set from 1 to 60 seconds.
+- Uses a 1,200-second idle threshold by default. It checks every 30 seconds while active or not yet classified, then every second after entering the idle plan so returning input can restore the active plan quickly.
+- Provides two independent, opt-in idle protections, both disabled by default: skip the idle rule while another program declares `ES_SYSTEM_REQUIRED`, `ES_DISPLAY_REQUIRED`, or `ES_AWAYMODE_REQUIRED`, and skip it while the foreground window is fullscreen.
 - Calls `powercfg /setactive` only when the target state changes, then verifies the active plan GUID before reporting success.
 - Provides concise notifications for startup synchronization, successful switches, failed switches, and external power-plan changes.
 - Requires two consecutive idle checks before switching to the idle plan, while user activity resumes the active plan immediately.
@@ -33,7 +34,7 @@ The application starts directly in the system tray. After the configured idle th
 
 AutoPowerMode contains no telemetry, analytics, advertising SDK, remote API client, update beacon, or background upload code. It does not send configuration, power-plan details, diagnostics, logs, user names, file paths, or device information to this project or any third party.
 
-All normal processing is local: Windows idle detection, `powercfg`, current-user startup registration, configuration, diagnostics, and logs. The only feature that can open a network destination is the user-initiated **GitHub project page** button, which asks Windows to open this public repository in the default browser. Copying diagnostics is also user-initiated and writes only to the local clipboard.
+All normal processing is local: Windows idle detection, system execution-state reads, foreground-window and monitor-bound comparisons, `powercfg`, current-user startup registration, configuration, diagnostics, and logs. The only feature that can open a network destination is the user-initiated **GitHub project page** button, which asks Windows to open this public repository in the default browser. Copying diagnostics is also user-initiated and writes only to the local clipboard.
 
 Logs are bounded by rotation and sanitize the AppData application path and executable directory. Release builds disable debug symbols, and GitHub Actions builds release archives from source without local build artifacts.
 
@@ -60,4 +61,4 @@ dotnet build AutoPowerMode.sln --configuration Release
 dotnet run --project tests/AutoPowerMode.Tests/AutoPowerMode.Tests.csproj
 ```
 
-The tests cover configuration migration, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
+The tests cover configuration migration, idle protections, dual-rate monitoring, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection.
