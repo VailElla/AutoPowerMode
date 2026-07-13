@@ -65,3 +65,10 @@ dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi
 ```
 
 逻辑测试覆盖配置迁移、可独立配置的双频检测策略、空闲误触保护、语言选择与持久化、电源计划解析、切换策略、通知、DPI 布局、日志轮转与路径脱敏、开机自启和外部覆盖保护。Windows 专用冒烟测试会实际打开中英文设置窗口并验证宽窄布局切换。
+
+## 开源协议与参与贡献
+
+AutoPowerMode 是采用 [MIT 许可证](LICENSE) 发布的开源软件。欢迎提交
+问题反馈和聚焦明确的 Pull Request；开发环境与验证流程请参阅
+[CONTRIBUTING.md](CONTRIBUTING.md)。安全漏洞请按照 [SECURITY.md](SECURITY.md)
+中的方式私下报告，不要直接创建公开 issue。
