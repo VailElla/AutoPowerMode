@@ -65,3 +65,11 @@ dotnet run --project tests/AutoPowerMode.WindowsUi.Tests/AutoPowerMode.WindowsUi
 ```
 
 The logic tests cover configuration migration, independently configurable dual-rate monitoring, idle protections, language selection and persistence, power-plan parsing, switch policies, notifications, DPI layout, log rotation and path sanitization, startup registration, and external override protection. The Windows-only smoke test opens the localized Settings form and exercises both wide and compact layouts.
+
+## License and contributing
+
+AutoPowerMode is open source software released under the [MIT License](LICENSE).
+Contributions, bug reports, and focused pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the development and validation workflow.
+For security vulnerabilities, follow [SECURITY.md](SECURITY.md) instead of
+opening a public issue.
